@@ -51,7 +51,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="AutoRef API",
-    version="0.2.0",
+    version="0.3.0",
     description="Layout-preserving DOCX citation conversion for Zotero",
     lifespan=lifespan,
 )

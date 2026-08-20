@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "autoref": {
+      "command": "autoref-mcp",
+      "args": [],
+      "cwd": ".",
+      "env_vars": [
+        "AUTOREF_CREDENTIAL_KEY",
+        "AUTOREF_CREDENTIAL_TTL_MINUTES",
+        "AUTOREF_CROSSREF_API_URL",
+        "AUTOREF_CROSSREF_MAILTO",
+        "AUTOREF_JOB_ROOT",
+        "AUTOREF_JOB_TTL_HOURS",
+        "AUTOREF_MAX_UPLOAD_BYTES",
+        "AUTOREF_ZOTERO_API_KEY",
+        "AUTOREF_ZOTERO_API_URL"
+      ],
+      "startup_timeout_sec": 20,
+      "tool_timeout_sec": 600
+    }
+  }
+}

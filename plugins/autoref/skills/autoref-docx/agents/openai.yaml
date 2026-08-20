@@ -1,0 +1,12 @@
+interface:
+  display_name: "AutoRef DOCX"
+  short_description: "Convert DOCX citations into Zotero fields"
+  default_prompt: "Use $autoref-docx to convert my research paper for Zotero."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "autoref"
+      description: "AutoRef document analysis, citation conversion, artifact, and Zotero tools"
+      transport: "stdio"
+policy:
+  allow_implicit_invocation: true

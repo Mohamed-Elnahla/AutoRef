@@ -23,6 +23,11 @@ FastAPI application
         +-- built-in deterministic parser
         +-- optional future adapter: self-hosted GROBID
         +-- opt-in Zotero Web API v3 client + encrypted credential vault
+
+AI client -- stdio or Streamable HTTP --> AutoRef MCP server
+                                          +-- same DOCX services and job store
+                                          +-- base64 or local-path document input
+                                          +-- guarded Zotero preview/import workflow
 ```
 
 ## Backend modules
@@ -35,6 +40,7 @@ FastAPI application
 - `models.py`: internal evidence and output contracts.
 - `credential_vault.py`: short-lived Fernet-encrypted API keys held in process memory.
 - `zotero.py`: permission discovery, library selection, deduplication, item/collection writes, and rollback.
+- `mcp_server.py`: MCP tools, resource, prompt, binary transport adapters, and explicit write confirmation.
 
 ## Conversion pipeline
 

@@ -19,6 +19,8 @@ This repository is a conservative working foundation, not a claim that arbitrary
 - Crossref DOI verification and canonical metadata download before new Zotero items are written
 - create/reuse audit data, canonical Zotero item linkage, and compensating rollback
 - responsive React UI with light/dark themes
+- MCP server for stdio or Streamable HTTP AI clients, covering the full backend workflow
+- downloadable Codex plugin and `$autoref-docx` skill in `plugins/autoref`
 
 ## Quick start
 
@@ -70,3 +72,9 @@ A confirmed Zotero import instead returns `*-zotero-linked.docx` and `*-zotero-i
 CSL-JSON import creates new item keys, so credential-free output cannot link its Word fields to the separately imported records. Those fields retain embedded metadata and remain editable, but initially appear as orphaned citations. Use the Zotero-linked workflow when stable library linkage matters.
 
 Read [the architecture](docs/ARCHITECTURE.md), [research notes](docs/OPEN_SOURCE_RESEARCH.md), [decisions](docs/DECISIONS.md), and [roadmap](docs/ROADMAP.md) before extending the converter.
+
+## AI clients and Codex
+
+Installing the package also installs `autoref-mcp`. Run it with no arguments for stdio, or use `autoref-mcp --transport streamable-http --port 8010` for a loopback HTTP endpoint. The one-call `convert_docx_to_zotero` tool produces the converted DOCX, CSL-JSON Zotero import file, and audit report; the remaining tools expose analysis, artifact reads, and the reviewed linked-Zotero workflow.
+
+The repository-local Codex plugin lives at `plugins/autoref` and includes the `$autoref-docx` skill. See [the MCP and plugin guide](docs/MCP.md) for client configuration, installation, tool behavior, secret handling, and the explicit Zotero write boundary.

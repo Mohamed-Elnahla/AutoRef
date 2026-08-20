@@ -14,6 +14,5 @@ RUN pip install --no-cache-dir .
 COPY --from=web /src/frontend/dist frontend/dist
 RUN useradd --create-home --uid 10001 autoref && mkdir -p /app/data/jobs && chown -R autoref:autoref /app/data
 USER autoref
-EXPOSE 8000
+EXPOSE 8000 8010
 CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-

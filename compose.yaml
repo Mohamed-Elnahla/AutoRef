@@ -14,5 +14,24 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  autoref-mcp:
+    build: .
+    profiles: ["mcp"]
+    command:
+      ["autoref-mcp", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8010"]
+    ports:
+      - "8010:8010"
+    environment:
+      AUTOREF_JOB_ROOT: /app/data/jobs
+      AUTOREF_JOB_TTL_HOURS: "24"
+    volumes:
+      - autoref-mcp-jobs:/app/data/jobs
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   autoref-jobs:
+  autoref-mcp-jobs:
