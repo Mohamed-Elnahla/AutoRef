@@ -18,7 +18,12 @@ from backend.app.services.docx_processor import DocxError, write_csl_json
 from backend.app.services.docx_processor import analyze_docx as analyze_docx_bytes
 from backend.app.services.docx_processor import convert_docx as convert_docx_bytes
 from backend.app.services.job_store import JobStore
-from backend.app.services.zotero import Library, ZoteroClient, ZoteroError
+from backend.app.services.zotero import (
+    Library,
+    ZoteroClient,
+    ZoteroError,
+    ZoteroImportReviewRequired,
+)
 
 store = JobStore()
 vault = CredentialVault()
@@ -335,6 +340,7 @@ def import_to_zotero(
     plan_id: str,
     confirm: bool,
     collection_name: str | None = None,
+    unverified_doi_action: Literal["review", "use_parsed", "mark_for_review", "exclude"] = "review",
 ) -> dict[str, Any]:
     """Execute a reviewed Zotero import and produce a DOCX linked to canonical item keys.
 
@@ -364,8 +370,22 @@ def import_to_zotero(
     try:
         library = _selected_library(client, library_type, library_id)
         links, import_audit = client.execute(
-            library, analysis.references, plan, plan.get("collection_name"), crossref
+            library,
+            analysis.references,
+            plan,
+            plan.get("collection_name"),
+            crossref,
+            unverified_doi_action,
         )
+    except ZoteroImportReviewRequired as exc:
+        failure = {
+            "status": "needs_doi_review",
+            "unresolved": exc.unresolved,
+            "message": str(exc),
+            "write_performed": False,
+        }
+        store.write_json(job_id, "zotero-import-failure.json", failure)
+        raise ValueError(json.dumps(failure)) from exc
     except ZoteroError as exc:
         store.write_json(
             job_id,
@@ -376,7 +396,11 @@ def import_to_zotero(
     finally:
         crossref.close()
         client.close()
-    converted, report = convert_docx_bytes(source, analysis, links)
+    excluded = {
+        item["reference_id"]
+        for item in import_audit["crossref"]["unresolved"]
+    } if unverified_doi_action == "exclude" else set()
+    converted, report = convert_docx_bytes(source, analysis, links, excluded)
     stem = _safe_stem(source_name)
     directory = store.directory(job_id)
     document_name = f"{stem}-zotero-linked.docx"

@@ -21,7 +21,12 @@ from backend.app.services.docx_processor import (
     write_csl_json,
 )
 from backend.app.services.job_store import JobStore
-from backend.app.services.zotero import Library, ZoteroClient, ZoteroError
+from backend.app.services.zotero import (
+    Library,
+    ZoteroClient,
+    ZoteroError,
+    ZoteroImportReviewRequired,
+)
 
 store = JobStore()
 vault = CredentialVault()
@@ -40,6 +45,7 @@ class ZoteroLibraryRequest(BaseModel):
 
 class ZoteroImportRequest(ZoteroLibraryRequest):
     plan_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    unverified_doi_action: Literal["review", "use_parsed", "mark_for_review", "exclude"] = "review"
 
 
 @asynccontextmanager
@@ -225,8 +231,22 @@ def import_to_zotero(job_id: str, payload: ZoteroImportRequest) -> dict:
     try:
         library = _selected_library(client, payload.library_type, payload.library_id)
         links, import_audit = client.execute(
-            library, analysis.references, plan, plan.get("collection_name"), crossref
+            library,
+            analysis.references,
+            plan,
+            plan.get("collection_name"),
+            crossref,
+            payload.unverified_doi_action,
         )
+    except ZoteroImportReviewRequired as exc:
+        failure = {
+            "status": "needs_doi_review",
+            "unresolved": exc.unresolved,
+            "message": str(exc),
+            "write_performed": False,
+        }
+        store.write_json(job_id, "zotero-import-failure.json", failure)
+        raise HTTPException(status_code=422, detail=failure) from exc
     except ZoteroError as exc:
         store.write_json(
             job_id,
@@ -238,7 +258,11 @@ def import_to_zotero(job_id: str, payload: ZoteroImportRequest) -> dict:
         crossref.close()
         client.close()
 
-    converted, report = convert_docx(source, analysis, links)
+    excluded = {
+        item["reference_id"]
+        for item in import_audit["crossref"]["unresolved"]
+    } if payload.unverified_doi_action == "exclude" else set()
+    converted, report = convert_docx(source, analysis, links, excluded)
     stem = _safe_stem(metadata["source_name"])
     directory = store.directory(job_id)
     document_name = f"{stem}-zotero-linked.docx"

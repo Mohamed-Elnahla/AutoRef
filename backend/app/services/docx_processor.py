@@ -314,12 +314,32 @@ def convert_docx(
     data: bytes,
     analysis: Analysis,
     zotero_items: dict[str, dict[str, str]] | None = None,
+    excluded_reference_ids: set[str] | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     refs = {ref.id: ref for ref in analysis.references}
-    selected = [candidate for candidate in analysis.citations if candidate.items]
+    excluded_reference_ids = excluded_reference_ids or set()
+    selected = [
+        candidate
+        for candidate in analysis.citations
+        if candidate.items
+        and not any(item.reference_id in excluded_reference_ids for item in candidate.items)
+    ]
     with zipfile.ZipFile(io.BytesIO(data)) as source:
         root = etree.fromstring(source.read("word/document.xml"))
         paragraphs = root.xpath(".//w:p", namespaces=NS)
+        excluded_raw = {
+            re.sub(r"\s+", " ", refs[reference_id].raw).strip()
+            for reference_id in excluded_reference_ids
+            if reference_id in refs
+        }
+        removed_references = 0
+        if excluded_raw:
+            for paragraph in list(_reference_result_paragraphs(paragraphs, analysis.reference_heading_index)):
+                text = re.sub(r"\s+", " ", paragraph_text(paragraph)).strip()
+                if text in excluded_raw:
+                    paragraph.getparent().remove(paragraph)
+                    removed_references += 1
+            paragraphs = root.xpath(".//w:p", namespaces=NS)
         grouped: dict[int, list[CitationCandidate]] = defaultdict(list)
         for candidate in selected:
             grouped[candidate.paragraph_index].append(candidate)
@@ -348,6 +368,13 @@ def convert_docx(
         "converted_bibliography": bool(bibliography_entries),
         "bibliography_entries": bibliography_entries,
         "skipped_citations": skipped,
+        "excluded_references": removed_references,
+        "unlinked_excluded_citations": sum(
+            1
+            for candidate in analysis.citations
+            if candidate.items
+            and any(item.reference_id in excluded_reference_ids for item in candidate.items)
+        ),
         "unchanged_parts": "All DOCX package parts except word/document.xml are copied byte-for-byte.",
         "zotero_linkage": (
             "Citations use canonical Zotero library item keys and URIs."

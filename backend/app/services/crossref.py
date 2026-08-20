@@ -9,6 +9,7 @@ import httpx
 
 from backend.app.config import settings
 from backend.app.models import Reference
+from backend.app.services.reference_parser import extract_doi
 
 
 class CrossrefError(RuntimeError):
@@ -80,12 +81,38 @@ class CrossrefClient:
             timeout=30,
             transport=transport,
         )
+        self._resolver = httpx.Client(
+            headers={"User-Agent": user_agent},
+            timeout=20,
+            follow_redirects=True,
+            transport=transport,
+        )
 
     def close(self) -> None:
         self._client.close()
+        self._resolver.close()
+
+    def doi_resolves(self, doi: str) -> bool:
+        """Return whether doi.org can resolve a DOI outside Crossref's registry.
+
+        Resolution intentionally does not replace parsed metadata: a successful
+        resolver lookup only establishes that the identifier is live, while
+        Crossref remains the source of canonical metadata when it has a record.
+        """
+        normalized = normalize_doi(doi)
+        if not normalized:
+            return False
+        try:
+            response = self._resolver.get(f"https://doi.org/{quote(normalized, safe='/')}")
+        except httpx.HTTPError:
+            return False
+        return 200 <= response.status_code < 400
 
     def verify_and_download(self, reference: Reference) -> Reference:
-        requested_doi = normalize_doi(reference.doi)
+        # Retry extraction from the original reference before declaring a DOI
+        # unresolved. This handles DOI labels/URLs and trailing bibliography
+        # punctuation that can survive an earlier parse.
+        requested_doi = normalize_doi(reference.doi or extract_doi(reference.raw))
         if not requested_doi:
             return reference
         try:

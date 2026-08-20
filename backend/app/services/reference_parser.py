@@ -6,8 +6,11 @@ from collections.abc import Iterable
 
 from backend.app.models import Reference
 
+# DOI suffixes are intentionally permissive: publishers use several valid punctuation
+# characters and references often put the identifier behind a URL or "doi:" label.
 DOI_RE = re.compile(
-    r"(?:https?://(?:dx\.)?doi\.org/)?(10\.\d{4,9}/[-._;()/:A-Z0-9]+)", re.IGNORECASE
+    r"(?:https?://(?:dx\.)?doi\.org/|doi:\s*)?(10\.\d{4,9}/[^\s\"<>]+)",
+    re.IGNORECASE,
 )
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 YEAR_RE = re.compile(
@@ -23,6 +26,22 @@ def stable_reference_id(raw: str) -> str:
 
 def _clean_token(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip(" .,")
+
+
+def extract_doi(value: str) -> str:
+    """Extract and clean a DOI embedded in a reference or URL.
+
+    This is also used just before network verification, so a DOI missed or
+    partially captured during initial parsing gets one last recovery attempt.
+    """
+    match = DOI_RE.search(value)
+    if not match:
+        return ""
+    doi = match.group(1).rstrip(".,;:!?”’]}>")
+    # A closing parenthesis is valid in a DOI only when it closes an opening one.
+    while doi.endswith(")") and doi.count(")") > doi.count("("):
+        doi = doi[:-1]
+    return doi
 
 
 def _parse_authors(author_block: str) -> list[dict[str, str]]:
@@ -61,9 +80,7 @@ def parse_reference(raw: str) -> Reference:
     else:
         remainder = normalized
 
-    doi_match = DOI_RE.search(normalized)
-    if doi_match:
-        ref.doi = doi_match.group(1).rstrip(".,)")
+    ref.doi = extract_doi(normalized)
     url_match = URL_RE.search(normalized)
     if url_match:
         ref.url = url_match.group(0).rstrip(".,)")

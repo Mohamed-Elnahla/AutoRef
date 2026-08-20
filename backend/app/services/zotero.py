@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -11,11 +12,22 @@ import httpx
 
 from backend.app.config import settings
 from backend.app.models import Reference
-from backend.app.services.crossref import CrossrefClient, CrossrefError
+from backend.app.services.crossref import (
+    CrossrefClient,
+    CrossrefError,
+)
 
 
 class ZoteroError(RuntimeError):
     pass
+
+
+class ZoteroImportReviewRequired(ZoteroError):
+    """Raised before any write when the user must choose how to handle DOI failures."""
+
+    def __init__(self, unresolved: list[dict[str, str]]) -> None:
+        self.unresolved = unresolved
+        super().__init__(f"{len(unresolved)} DOI(s) could not be verified. Review the import choices.")
 
 
 @dataclass(frozen=True)
@@ -51,6 +63,8 @@ def _extract_key(value: Any) -> str:
 
 
 class ZoteroClient:
+    _MAX_RATE_LIMIT_RETRIES = 3
+
     def __init__(self, api_key: str, transport: httpx.BaseTransport | None = None) -> None:
         self._client = httpx.Client(
             base_url=settings.zotero_api_url,
@@ -62,23 +76,45 @@ class ZoteroClient:
             timeout=30,
             transport=transport,
         )
+        self._backoff_until = 0.0
 
     def close(self) -> None:
         self._client.close()
 
     def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        for attempt in range(self._MAX_RATE_LIMIT_RETRIES + 1):
+            remaining_backoff = self._backoff_until - time.monotonic()
+            if remaining_backoff > 0:
+                time.sleep(remaining_backoff)
+            try:
+                response = self._client.request(method, path, **kwargs)
+            except httpx.HTTPError as exc:
+                raise ZoteroError("Zotero could not be reached. No library changes were made.") from exc
+
+            backoff = self._header_seconds(response, "Backoff")
+            if backoff:
+                self._backoff_until = max(self._backoff_until, time.monotonic() + backoff)
+            if response.status_code == 429 and attempt < self._MAX_RATE_LIMIT_RETRIES:
+                retry_after = self._header_seconds(response, "Retry-After")
+                delay = retry_after if retry_after is not None else 2**attempt
+                self._backoff_until = max(self._backoff_until, time.monotonic() + delay)
+                continue
+            if response.status_code >= 400:
+                message = "Zotero rejected the request"
+                if response.status_code in {401, 403}:
+                    message = "The Zotero key is invalid or lacks the required library permission"
+                elif response.status_code == 429:
+                    message = "Zotero rate-limited the request after retrying; try again later"
+                raise ZoteroError(f"{message} ({response.status_code}).")
+            return response
+        raise AssertionError("Unreachable rate-limit retry loop")
+
+    @staticmethod
+    def _header_seconds(response: httpx.Response, name: str) -> float | None:
         try:
-            response = self._client.request(method, path, **kwargs)
-        except httpx.HTTPError as exc:
-            raise ZoteroError("Zotero could not be reached. No library changes were made.") from exc
-        if response.status_code >= 400:
-            message = "Zotero rejected the request"
-            if response.status_code in {401, 403}:
-                message = "The Zotero key is invalid or lacks the required library permission"
-            elif response.status_code == 429:
-                message = "Zotero rate-limited the request; try again later"
-            raise ZoteroError(f"{message} ({response.status_code}).")
-        return response
+            return max(0.0, float(response.headers[name]))
+        except (KeyError, ValueError):
+            return None
 
     def libraries(self) -> tuple[dict[str, Any], list[Library]]:
         access = self._request("GET", "/keys/current").json()
@@ -135,7 +171,9 @@ class ZoteroClient:
         digest = hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
         return {"plan_id": digest, "entries": entries}
 
-    def _item_payload(self, reference: Reference, collection_key: str | None) -> dict[str, Any]:
+    def _item_payload(
+        self, reference: Reference, collection_key: str | None, review_note: str = ""
+    ) -> dict[str, Any]:
         type_map = {
             "article-journal": "journalArticle",
             "article": "journalArticle",
@@ -164,7 +202,9 @@ class ZoteroClient:
             ],
             "date": str(reference.issued_year or ""),
             "url": reference.url,
-            "extra": f"AutoRef source: {reference.raw}",
+            "extra": "\n".join(
+                part for part in (f"AutoRef source: {reference.raw}", review_note) if part
+            ),
             "collections": [collection_key] if collection_key else [],
         }
         if item_type == "journalArticle":
@@ -217,10 +257,14 @@ class ZoteroClient:
         plan: dict[str, Any],
         collection_name: str | None,
         crossref: CrossrefClient | None = None,
+        unverified_doi_action: Literal["review", "use_parsed", "mark_for_review", "exclude"] = "review",
     ) -> tuple[dict[str, dict[str, str]], dict[str, Any]]:
         by_id = {reference.id: reference for reference in references}
         creates = [entry for entry in plan["entries"] if entry["action"] == "create"]
         verified_dois: list[str] = []
+        resolver_verified_dois: list[str] = []
+        unresolved: list[dict[str, str]] = []
+        review_notes: dict[str, str] = {}
         if crossref:
             # Resolve every DOI before the first Zotero write, so failed verification cannot
             # leave behind a collection or a partially imported library.
@@ -230,12 +274,42 @@ class ZoteroClient:
                     try:
                         reference = crossref.verify_and_download(reference)
                     except CrossrefError as exc:
-                        raise ZoteroError(str(exc)) from exc
+                        # Some valid DOI agencies (including DataCite/arXiv) are
+                        # not indexed by Crossref. If doi.org resolves it, retain
+                        # the document's parsed metadata and import normally.
+                        if crossref.doi_resolves(reference.doi):
+                            resolver_verified_dois.append(reference.doi)
+                            continue
+                        unresolved.append(
+                            {
+                                "reference_id": reference.id,
+                                "title": reference.title or reference.raw,
+                                "doi": reference.doi,
+                                "reason": str(exc),
+                            }
+                        )
+                        continue
                     by_id[entry["reference_id"]] = reference
                     verified_dois.append(reference.doi)
-        collection_key, collection_created, collection_version = self._collection(
-            library, collection_name
-        )
+        if unresolved and unverified_doi_action == "review":
+            raise ZoteroImportReviewRequired(unresolved)
+        unresolved_ids = {item["reference_id"] for item in unresolved}
+        if unverified_doi_action == "mark_for_review":
+            review_notes = {
+                item["reference_id"]: (
+                    "AutoRef review required: DOI could not be verified by Crossref. "
+                    f"Reason: {item['reason']}"
+                )
+                for item in unresolved
+            }
+        if unverified_doi_action == "exclude":
+            creates = [entry for entry in creates if entry["reference_id"] not in unresolved_ids]
+        if creates:
+            collection_key, collection_created, collection_version = self._collection(
+                library, collection_name
+            )
+        else:
+            collection_key, collection_created, collection_version = None, False, None
         links: dict[str, dict[str, str]] = {}
         created_keys: list[str] = []
         created_version: int | None = None
@@ -250,7 +324,14 @@ class ZoteroClient:
                     "POST",
                     f"{library.prefix}/items",
                     headers={"Zotero-Write-Token": uuid.uuid4().hex},
-                    json=[self._item_payload(by_id[entry["reference_id"]], collection_key) for entry in batch],
+                    json=[
+                        self._item_payload(
+                            by_id[entry["reference_id"]],
+                            collection_key,
+                            review_notes.get(entry["reference_id"], ""),
+                        )
+                        for entry in batch
+                    ],
                 )
                 body = response.json()
                 successful = body.get("successful", body.get("success", {}))
@@ -279,7 +360,13 @@ class ZoteroClient:
             "collection": {"name": collection_name, "key": collection_key, "created": collection_created},
             "created": created_keys,
             "reused": [entry["item_key"] for entry in plan["entries"] if entry["action"] == "reuse"],
-            "crossref": {"verified_dois": verified_dois, "metadata_source": "Crossref"},
+            "crossref": {
+                "verified_dois": verified_dois,
+                "doi_resolved_dois": resolver_verified_dois,
+                "unresolved": unresolved,
+                "unverified_doi_action": unverified_doi_action,
+                "metadata_source": "Crossref",
+            },
             "rollback": "not_needed",
         }
         return links, audit

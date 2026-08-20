@@ -19,3 +19,10 @@ def test_reference_id_is_stable():
     raw = "Example, A. (2024). A title. A Journal, 1, 1-2."
     assert parse_reference(raw).id == parse_reference(raw).id
 
+
+def test_parse_reference_recovers_doi_label_and_trailing_bibliography_punctuation():
+    ref = parse_reference(
+        "Author, A. (2024). Preprint. doi: https://doi.org/10.48550/arXiv.2312.10997)."
+    )
+
+    assert ref.doi == "10.48550/arXiv.2312.10997"

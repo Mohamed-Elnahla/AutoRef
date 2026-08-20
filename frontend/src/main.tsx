@@ -53,6 +53,8 @@ type ZoteroPlan = {
   summary: { create: number; reuse: number };
   entries: Array<{ reference_id: string; title: string; action: "create" | "reuse"; reason?: string }>;
 };
+type UnresolvedDoi = { reference_id: string; title: string; doi: string; reason: string };
+type DoiReview = { status: "needs_doi_review"; unresolved: UnresolvedDoi[]; message: string };
 
 const apiError = async (response: Response) => {
   const body = await response.json().catch(() => ({}));
@@ -74,6 +76,7 @@ function App() {
   const [libraryIndex, setLibraryIndex] = useState(0);
   const [collectionName, setCollectionName] = useState("");
   const [plan, setPlan] = useState<ZoteroPlan | null>(null);
+  const [doiReview, setDoiReview] = useState<DoiReview | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -98,6 +101,7 @@ function App() {
     setAnalysis(null);
     setConversion(null);
     setPlan(null);
+    setDoiReview(null);
     setError("");
   };
 
@@ -154,7 +158,10 @@ function App() {
     }
   };
 
-  const zoteroRequest = async (action: "preview" | "import") => {
+  const zoteroRequest = async (
+    action: "preview" | "import",
+    unverifiedDoiAction: "review" | "use_parsed" | "mark_for_review" | "exclude" = "review",
+  ) => {
     if (!analysis || !connection) return;
     const library = connection.libraries[libraryIndex];
     setBusy("convert");
@@ -168,13 +175,28 @@ function App() {
           library_type: library.type,
           library_id: library.id,
           collection_name: collectionName.trim() || null,
-          ...(action === "import" && plan ? { plan_id: plan.plan_id } : {}),
+          ...(action === "import" && plan ? {
+            plan_id: plan.plan_id,
+            unverified_doi_action: unverifiedDoiAction,
+          } : {}),
         }),
       });
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) {
+        const detail = await apiError(response);
+        if (action === "import" && typeof detail === "object" && detail?.status === "needs_doi_review") {
+          setDoiReview(detail as DoiReview);
+          return;
+        }
+        throw new Error(typeof detail === "string" ? detail : "Zotero import failed.");
+      }
       const result = await response.json();
-      if (action === "preview") setPlan(result);
-      else setConversion(result);
+      if (action === "preview") {
+        setPlan(result);
+        setDoiReview(null);
+      } else {
+        setConversion(result);
+        setDoiReview(null);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Zotero import failed.");
     } finally {
@@ -187,6 +209,7 @@ function App() {
     setAnalysis(null);
     setConversion(null);
     setPlan(null);
+    setDoiReview(null);
     setError("");
   };
 
@@ -315,7 +338,7 @@ function App() {
                           </div>
                         ) : !plan ? (
                           <div className="zotero-options">
-                            <label>Library<select value={libraryIndex} onChange={(event) => { setLibraryIndex(Number(event.target.value)); setPlan(null); }}>
+                            <label>Library<select value={libraryIndex} onChange={(event) => { setLibraryIndex(Number(event.target.value)); setPlan(null); setDoiReview(null); }}>
                               {connection.libraries.map((library, index) => <option key={`${library.type}-${library.id}`} value={index}>{library.name} ({library.type})</option>)}
                             </select></label>
                             <label>Collection (optional)<input value={collectionName} onChange={(event) => setCollectionName(event.target.value)} placeholder="AutoRef imports" /></label>
@@ -327,7 +350,19 @@ function App() {
                             <p><strong>{plan.summary.create}</strong> new item(s) · <strong>{plan.summary.reuse}</strong> exact DOI/title match(es) reused</p>
                             <div className="plan-list">{plan.entries.slice(0, 6).map((entry) => <span key={entry.reference_id}><b>{entry.action}</b>{entry.title}</span>)}</div>
                             {plan.entries.length > 6 && <small>Plus {plan.entries.length - 6} more item(s).</small>}
-                            <div className="review-actions"><button className="secondary" onClick={() => setPlan(null)}>Change options</button><button className="primary" onClick={() => zoteroRequest("import")} disabled={busy !== null}>{busy === "convert" ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />} Confirm & link</button></div>
+                            {doiReview && (
+                              <div className="doi-review" role="alert">
+                                <strong>DOI verification needs your review</strong>
+                                <p>Crossref could not confirm {doiReview.unresolved.length} DOI{doiReview.unresolved.length === 1 ? "" : "s"}. This can happen when a valid DOI is registered outside Crossref, such as arXiv/DataCite.</p>
+                                <div className="doi-list">{doiReview.unresolved.map((item) => <span key={item.reference_id}><b>{item.doi || "No DOI extracted"}</b>{item.title}<small>{item.reason}</small></span>)}</div>
+                                <div className="doi-actions">
+                                  <button className="secondary" onClick={() => zoteroRequest("import", "use_parsed")} disabled={busy !== null}>Keep parsed data</button>
+                                  <button className="secondary" onClick={() => zoteroRequest("import", "mark_for_review")} disabled={busy !== null}>Import & mark to fix</button>
+                                  <button className="secondary danger" onClick={() => zoteroRequest("import", "exclude")} disabled={busy !== null}>Remove & don’t import</button>
+                                </div>
+                              </div>
+                            )}
+                            <div className="review-actions"><button className="secondary" onClick={() => { setPlan(null); setDoiReview(null); }}>Change options</button><button className="primary" onClick={() => zoteroRequest("import")} disabled={busy !== null}>{busy === "convert" ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />} Confirm & link</button></div>
                           </div>
                         )}
                       </div>

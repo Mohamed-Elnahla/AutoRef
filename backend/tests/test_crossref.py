@@ -62,3 +62,15 @@ def test_crossref_returning_a_different_doi_fails_verification():
     with pytest.raises(CrossrefVerificationError, match="different DOI"):
         client.verify_and_download(Reference(id="ref-1", raw="Wrong", doi="10.1000/requested"))
     client.close()
+
+
+def test_doi_resolves_uses_doi_org_after_a_crossref_miss():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "doi.org":
+            assert request.url.path == "/10.48550/arxiv.2312.10997"
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    client = CrossrefClient(transport=httpx.MockTransport(handler))
+    assert client.doi_resolves("https://doi.org/10.48550/arXiv.2312.10997")
+    client.close()

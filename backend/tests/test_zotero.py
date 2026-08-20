@@ -5,7 +5,12 @@ import pytest
 
 from backend.app.models import Reference
 from backend.app.services.crossref import CrossrefClient
-from backend.app.services.zotero import Library, ZoteroClient, ZoteroError
+from backend.app.services.zotero import (
+    Library,
+    ZoteroClient,
+    ZoteroError,
+    ZoteroImportReviewRequired,
+)
 
 
 def _reference() -> Reference:
@@ -32,6 +37,46 @@ def test_plan_reuses_exact_doi_match():
     client.close()
     assert plan["entries"][0]["action"] == "reuse"
     assert plan["entries"][0]["item_key"] == "ABCD2345"
+
+
+def test_plan_retries_rate_limited_request_after_retry_after(monkeypatch):
+    calls = 0
+    waits: list[float] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(429, headers={"Retry-After": "2"})
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr("backend.app.services.zotero.time.sleep", waits.append)
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    plan = client.plan(Library("user", 7, "Mine"), [_reference()])
+    client.close()
+
+    assert plan["entries"][0]["action"] == "create"
+    assert calls == 2
+    assert waits and waits[0] > 0
+
+
+def test_backoff_header_delays_next_request(monkeypatch):
+    waits: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params["q"] == "10.1000/test":
+            return httpx.Response(200, headers={"Backoff": "2"}, json=[])
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr("backend.app.services.zotero.time.sleep", waits.append)
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    client.plan(
+        Library("user", 7, "Mine"),
+        [_reference(), Reference(id="ref-2", raw="Second", title="Second")],
+    )
+    client.close()
+
+    assert waits and waits[0] > 0
 
 
 def test_execute_creates_item_and_returns_canonical_uri():
@@ -118,11 +163,39 @@ def test_crossref_failure_happens_before_any_zotero_write():
     reference = _reference()
     plan = {"entries": [{"reference_id": reference.id, "action": "create", "item_key": None}]}
 
-    with pytest.raises(ZoteroError, match="could not verify DOI"):
+    with pytest.raises(ZoteroImportReviewRequired, match="could not be verified"):
         client.execute(Library("user", 7, "Mine"), [reference], plan, "New collection", crossref)
     client.close()
     crossref.close()
     assert zotero_requests == []
+
+
+def test_doi_org_resolution_keeps_parsed_metadata_when_crossref_has_no_record():
+    requests: list[httpx.Request] = []
+
+    def crossref_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "doi.org":
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    def zotero_handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        payload = json.loads(request.content)
+        assert payload[0]["title"] == "First paper"
+        assert payload[0]["DOI"] == "10.1000/test"
+        return httpx.Response(200, json={"successful": {"0": {"key": "NEWITEM1"}}})
+
+    crossref = CrossrefClient(transport=httpx.MockTransport(crossref_handler))
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(zotero_handler))
+    reference = _reference()
+    plan = {"entries": [{"reference_id": reference.id, "action": "create", "item_key": None}]}
+    _, audit = client.execute(Library("user", 7, "Mine"), [reference], plan, None, crossref)
+    client.close()
+    crossref.close()
+
+    assert len(requests) == 1
+    assert audit["crossref"]["verified_dois"] == []
+    assert audit["crossref"]["doi_resolved_dois"] == ["10.1000/test"]
 
 
 def test_partial_failure_attempts_compensating_delete():
