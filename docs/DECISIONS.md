@@ -52,7 +52,7 @@ AutoRef accepts user-created Zotero keys rather than silently persisting account
 
 **Status:** accepted
 
-DOI matches take priority, followed by normalized exact title matches. Existing items are reused without mutation. AutoRef does not fuzzy-merge bibliographic data because a false merge is harder to detect and repair than a duplicate.
+DOI matches take priority, followed by normalized exact title matches. Existing items are reused without mutation, except that an exact title match with no DOI is updated with the source DOI after review. AutoRef does not fuzzy-merge bibliographic data because a false merge is harder to detect and repair than a duplicate.
 
 ## ADR-010: Compensating rollback for Zotero writes
 

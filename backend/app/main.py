@@ -204,6 +204,7 @@ def preview_zotero_import(job_id: str, payload: ZoteroLibraryRequest) -> dict:
         "summary": {
             "create": sum(item["action"] == "create" for item in plan["entries"]),
             "reuse": sum(item["action"] == "reuse" for item in plan["entries"]),
+            "update": sum(item["action"] == "update" for item in plan["entries"]),
         },
     }
 

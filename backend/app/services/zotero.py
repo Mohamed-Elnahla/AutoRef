@@ -200,11 +200,23 @@ class ZoteroClient:
                         reason = "doi"
             if doi:
                 planned_dois.setdefault(doi, reference.id)
+            # A title match normally remains a non-mutating reuse.  The one
+            # safe exception is an item with no DOI when the source reference
+            # supplies one: enrich that existing record instead of creating a
+            # duplicate.
+            action = "reuse" if match or duplicate_of else "create"
+            if (
+                match
+                and reason == "title"
+                and doi
+                and not _normalized_doi(match.get("DOI", ""))
+            ):
+                action = "update"
             entries.append(
                 {
                     "reference_id": reference.id,
                     "title": reference.title or reference.raw,
-                    "action": "reuse" if match or duplicate_of else "create",
+                    "action": action,
                     "reason": reason,
                     "item_key": match.get("key") if match else None,
                     "duplicate_of": duplicate_of,
@@ -327,6 +339,27 @@ class ZoteroClient:
                 json={"collections": collections},
             )
 
+    def _add_missing_doi(self, library: Library, item_key: str, doi: str) -> bool:
+        """Set a DOI only if the existing Zotero item still has none.
+
+        Fetching immediately before PATCH avoids overwriting a DOI added after
+        the preview and provides Zotero's required optimistic-lock version.
+        """
+        item = self._request("GET", f"{library.prefix}/items/{item_key}").json()
+        data = item.get("data", item)
+        if _normalized_doi(data.get("DOI", "")):
+            return False
+        version = data.get("version")
+        if version is None:
+            raise ZoteroError("Zotero did not return a version for an existing item.")
+        self._request(
+            "PATCH",
+            f"{library.prefix}/items/{item_key}",
+            headers={"If-Unmodified-Since-Version": str(version)},
+            json={"DOI": doi},
+        )
+        return True
+
     def execute(
         self,
         library: Library,
@@ -411,7 +444,7 @@ class ZoteroClient:
         created_keys: list[str] = []
         created_version: int | None = None
         for entry in plan["entries"]:
-            if entry["action"] == "reuse" and entry.get("item_key"):
+            if entry["action"] in {"reuse", "update"} and entry.get("item_key"):
                 key = entry["item_key"]
                 links[entry["reference_id"]] = {"key": key, "uri": library.item_uri(key)}
         try:
@@ -441,6 +474,13 @@ class ZoteroClient:
                 created_version = int(response.headers.get("Last-Modified-Version", "0")) or created_version
                 if failed or len(successful) != len(batch):
                     raise ZoteroError(f"Zotero failed to create {len(failed) or 1} item(s).")
+            updated_keys: list[str] = []
+            for entry in plan["entries"]:
+                if entry["action"] != "update" or not entry.get("item_key"):
+                    continue
+                reference = by_id[entry["reference_id"]]
+                if reference.doi and self._add_missing_doi(library, entry["item_key"], reference.doi):
+                    updated_keys.append(entry["item_key"])
             # Resolve duplicate document references after their canonical item
             # has been created or reused in this execution.
             for entry in plan["entries"]:
@@ -454,7 +494,7 @@ class ZoteroClient:
             reused_keys = [
                 entry["item_key"]
                 for entry in plan["entries"]
-                if entry["action"] == "reuse" and entry.get("item_key")
+                if entry["action"] in {"reuse", "update"} and entry.get("item_key")
             ]
             self._add_items_to_collection(library, collection_key, reused_keys)
         except Exception as exc:
@@ -473,6 +513,7 @@ class ZoteroClient:
             "collection": {"name": collection_name, "key": collection_key, "created": collection_created},
             "created": created_keys,
             "reused": [entry["item_key"] for entry in plan["entries"] if entry["action"] == "reuse" and entry.get("item_key")],
+            "updated": updated_keys,
             "crossref": {
                 "verified_dois": verified_dois,
                 "doi_resolved_dois": resolver_verified_dois,

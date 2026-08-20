@@ -39,6 +39,53 @@ def test_plan_reuses_exact_doi_match():
     assert plan["entries"][0]["item_key"] == "ABCD2345"
 
 
+def test_plan_updates_exact_title_match_when_zotero_item_has_no_doi():
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[{"data": {"key": "MISSINGDOI", "title": "First paper", "DOI": ""}}],
+        )
+
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    plan = client.plan(Library("user", 7, "Mine"), [_reference()])
+    client.close()
+
+    assert plan["entries"][0]["action"] == "update"
+    assert plan["entries"][0]["reason"] == "title"
+    assert plan["entries"][0]["item_key"] == "MISSINGDOI"
+
+
+def test_execute_adds_doi_to_existing_title_match_only_when_still_missing():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET" and request.url.path.endswith("/items/MISSINGDOI"):
+            return httpx.Response(
+                200,
+                json={"data": {"key": "MISSINGDOI", "version": 10, "DOI": "", "collections": []}},
+            )
+        if request.method == "PATCH" and request.url.path.endswith("/items/MISSINGDOI"):
+            assert request.headers["If-Unmodified-Since-Version"] == "10"
+            assert json.loads(request.content) == {"DOI": "10.1000/test"}
+            return httpx.Response(204)
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    reference = _reference()
+    links, audit = client.execute(
+        Library("user", 7, "Mine"),
+        [reference],
+        {"entries": [{"reference_id": reference.id, "action": "update", "item_key": "MISSINGDOI"}]},
+        None,
+    )
+    client.close()
+
+    assert links[reference.id]["key"] == "MISSINGDOI"
+    assert audit["updated"] == ["MISSINGDOI"]
+    assert [request.method for request in requests] == ["GET", "PATCH"]
+
+
 def test_plan_deduplicates_repeated_document_dois_before_writing():
     calls = 0
 

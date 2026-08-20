@@ -295,7 +295,7 @@ def preview_zotero_import(
     library_id: int,
     collection_name: str | None = None,
 ) -> dict[str, Any]:
-    """Preview exact create/reuse decisions for a linked Zotero import without writing anything."""
+    """Preview exact create/reuse/DOI-update decisions without writing anything."""
     source, source_name = _job_source(job_id)
     if library_id <= 0:
         raise ValueError("library_id must be positive.")
@@ -323,6 +323,7 @@ def preview_zotero_import(
         "summary": {
             "create": sum(item["action"] == "create" for item in plan["entries"]),
             "reuse": sum(item["action"] == "reuse" for item in plan["entries"]),
+            "update": sum(item["action"] == "update" for item in plan["entries"]),
         },
         "write_performed": False,
     }

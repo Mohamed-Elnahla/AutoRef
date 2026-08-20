@@ -50,8 +50,8 @@ type ZoteroConnection = {
 };
 type ZoteroPlan = {
   plan_id: string;
-  summary: { create: number; reuse: number };
-  entries: Array<{ reference_id: string; title: string; action: "create" | "reuse"; reason?: string }>;
+  summary: { create: number; reuse: number; update: number };
+  entries: Array<{ reference_id: string; title: string; action: "create" | "reuse" | "update"; reason?: string }>;
 };
 type UnresolvedDoi = { reference_id: string; title: string; doi: string; reason: string };
 type DoiReview = { status: "needs_doi_review"; unresolved: UnresolvedDoi[]; message: string };
@@ -347,7 +347,7 @@ function App() {
                           </div>
                         ) : (
                           <div className="review-plan">
-                            <p><strong>{plan.summary.create}</strong> new item(s) · <strong>{plan.summary.reuse}</strong> exact DOI/title match(es) reused</p>
+                            <p><strong>{plan.summary.create}</strong> new item(s) · <strong>{plan.summary.reuse}</strong> exact DOI/title match(es) reused · <strong>{plan.summary.update}</strong> existing item(s) missing a DOI updated</p>
                             <div className="plan-list">{plan.entries.slice(0, 6).map((entry) => <span key={entry.reference_id}><b>{entry.action}</b>{entry.title}</span>)}</div>
                             {plan.entries.length > 6 && <small>Plus {plan.entries.length - 6} more item(s).</small>}
                             {doiReview && (
