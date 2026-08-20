@@ -58,12 +58,14 @@ document references -> exact DOI/title lookup -> create/reuse preview
                                   |
                          explicit confirmation
                                   |
+              Crossref DOI verification + metadata
+                                  |
              optional collection + item batches (max 50)
                                   |
              returned keys/URIs -> linked Word fields + audit
 ```
 
-The preview is saved in the expiring document job and bound to its library, collection, and digest. Import rejects changed options with `409`. Reused records are never modified. New records are created in batches of at most 50. If Zotero reports a partial failure, AutoRef attempts version-guarded deletion of items it created and removes a newly created collection when possible; it never deletes reused items.
+The preview is saved in the expiring document job and bound to its library, collection, and digest. Import rejects changed options with `409`. Reused records are never modified. Before creating anything in Zotero, AutoRef verifies every DOI belonging to a planned new item and downloads the canonical Crossref work metadata. A failed verification aborts before collection or item creation. References without DOIs continue with locally parsed metadata. New records are then created in batches of at most 50. If Zotero reports a partial failure, AutoRef attempts version-guarded deletion of items it created and removes a newly created collection when possible; it never deletes reused items.
 
 ## Word field representation
 

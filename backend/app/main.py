@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from backend.app.config import settings
 from backend.app.services.credential_vault import CredentialVault
+from backend.app.services.crossref import CrossrefClient
 from backend.app.services.docx_processor import (
     DocxError,
     analyze_docx,
@@ -220,10 +221,11 @@ def import_to_zotero(job_id: str, payload: ZoteroImportRequest) -> dict:
         raise HTTPException(status_code=409, detail="The import options changed; preview them again.")
     analysis = analyze_docx(source, metadata["source_name"])
     client = _zotero_client(payload.connection_id)
+    crossref = CrossrefClient()
     try:
         library = _selected_library(client, payload.library_type, payload.library_id)
         links, import_audit = client.execute(
-            library, analysis.references, plan, plan.get("collection_name")
+            library, analysis.references, plan, plan.get("collection_name"), crossref
         )
     except ZoteroError as exc:
         store.write_json(
@@ -233,6 +235,7 @@ def import_to_zotero(job_id: str, payload: ZoteroImportRequest) -> dict:
         )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     finally:
+        crossref.close()
         client.close()
 
     converted, report = convert_docx(source, analysis, links)

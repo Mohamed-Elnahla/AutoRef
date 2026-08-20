@@ -43,7 +43,9 @@ Returns a `plan_id`, a create/reuse decision for every reference, and summary co
 
 ## `POST /api/v1/documents/{job_id}/zotero/import`
 
-Accepts the preview body plus its `plan_id`. Options must exactly match the saved preview. After explicit confirmation, creates/reuses Zotero items, generates a linked DOCX, and returns its import report. Partial batch failure triggers best-effort compensating rollback.
+Accepts the preview body plus its `plan_id`. Options must exactly match the saved preview. After explicit confirmation, every new item with a DOI is verified through `GET /works/{doi}` at Crossref and enriched from the returned work metadata. All verification finishes before the first Zotero write. A missing, mismatched, unavailable, or malformed Crossref record fails the request with `502` and leaves Zotero unchanged. References without a DOI retain their parsed metadata, while existing exact Zotero matches are reused without a Crossref lookup.
+
+On success, the endpoint creates/reuses Zotero items, generates a linked DOCX, and returns its import report. The `zotero_import.crossref.verified_dois` audit field lists the verified DOI values. Partial Zotero batch failure triggers best-effort compensating rollback.
 
 ## `GET /api/v1/documents/{job_id}/artifacts/{name}`
 
@@ -59,4 +61,4 @@ Accepts the preview body plus its `plan_id`. Options must exactly match the save
 - `409`: Zotero import options no longer match the reviewed preview
 - `401`: encrypted Zotero connection expired
 - `403`: key lacks write access to the selected library
-- `502`: Zotero rejected or could not complete an external request
+- `502`: Crossref DOI verification or a Zotero request could not be completed

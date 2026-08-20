@@ -11,6 +11,7 @@ import httpx
 
 from backend.app.config import settings
 from backend.app.models import Reference
+from backend.app.services.crossref import CrossrefClient, CrossrefError
 
 
 class ZoteroError(RuntimeError):
@@ -137,8 +138,10 @@ class ZoteroClient:
     def _item_payload(self, reference: Reference, collection_key: str | None) -> dict[str, Any]:
         type_map = {
             "article-journal": "journalArticle",
+            "article": "journalArticle",
             "book": "book",
             "chapter": "bookSection",
+            "paper-conference": "conferencePaper",
             "thesis": "thesis",
             "report": "report",
             "webpage": "webpage",
@@ -148,11 +151,15 @@ class ZoteroClient:
             "itemType": item_type,
             "title": reference.title,
             "creators": [
-                {
-                    "creatorType": "author",
-                    "firstName": author.get("given", ""),
-                    "lastName": author.get("family", ""),
-                }
+                (
+                    {"creatorType": "author", "name": author["literal"]}
+                    if author.get("literal")
+                    else {
+                        "creatorType": "author",
+                        "firstName": author.get("given", ""),
+                        "lastName": author.get("family", ""),
+                    }
+                )
                 for author in reference.authors
             ],
             "date": str(reference.issued_year or ""),
@@ -172,6 +179,8 @@ class ZoteroClient:
             )
         elif item_type == "bookSection":
             payload.update({"bookTitle": reference.container_title, "pages": reference.page})
+        elif item_type == "conferencePaper":
+            payload.update({"proceedingsTitle": reference.container_title, "pages": reference.page})
         elif item_type == "webpage":
             payload["websiteTitle"] = reference.container_title
         return {key: value for key, value in payload.items() if value not in ("", [], None)}
@@ -207,15 +216,29 @@ class ZoteroClient:
         references: list[Reference],
         plan: dict[str, Any],
         collection_name: str | None,
+        crossref: CrossrefClient | None = None,
     ) -> tuple[dict[str, dict[str, str]], dict[str, Any]]:
         by_id = {reference.id: reference for reference in references}
+        creates = [entry for entry in plan["entries"] if entry["action"] == "create"]
+        verified_dois: list[str] = []
+        if crossref:
+            # Resolve every DOI before the first Zotero write, so failed verification cannot
+            # leave behind a collection or a partially imported library.
+            for entry in creates:
+                reference = by_id[entry["reference_id"]]
+                if reference.doi:
+                    try:
+                        reference = crossref.verify_and_download(reference)
+                    except CrossrefError as exc:
+                        raise ZoteroError(str(exc)) from exc
+                    by_id[entry["reference_id"]] = reference
+                    verified_dois.append(reference.doi)
         collection_key, collection_created, collection_version = self._collection(
             library, collection_name
         )
         links: dict[str, dict[str, str]] = {}
         created_keys: list[str] = []
         created_version: int | None = None
-        creates = [entry for entry in plan["entries"] if entry["action"] == "create"]
         for entry in plan["entries"]:
             if entry["action"] == "reuse":
                 key = entry["item_key"]
@@ -256,6 +279,7 @@ class ZoteroClient:
             "collection": {"name": collection_name, "key": collection_key, "created": collection_created},
             "created": created_keys,
             "reused": [entry["item_key"] for entry in plan["entries"] if entry["action"] == "reuse"],
+            "crossref": {"verified_dois": verified_dois, "metadata_source": "Crossref"},
             "rollback": "not_needed",
         }
         return links, audit

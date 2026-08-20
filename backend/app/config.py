@@ -11,6 +11,8 @@ class Settings:
     job_root: Path = Path(os.getenv("AUTOREF_JOB_ROOT", "data/jobs"))
     job_ttl_hours: int = int(os.getenv("AUTOREF_JOB_TTL_HOURS", "24"))
     grobid_url: str | None = os.getenv("AUTOREF_GROBID_URL") or None
+    crossref_api_url: str = os.getenv("AUTOREF_CROSSREF_API_URL", "https://api.crossref.org")
+    crossref_mailto: str | None = os.getenv("AUTOREF_CROSSREF_MAILTO") or None
     zotero_api_url: str = os.getenv("AUTOREF_ZOTERO_API_URL", "https://api.zotero.org")
     credential_ttl_minutes: int = int(os.getenv("AUTOREF_CREDENTIAL_TTL_MINUTES", "30"))
     credential_key: str | None = os.getenv("AUTOREF_CREDENTIAL_KEY") or None

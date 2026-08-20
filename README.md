@@ -16,6 +16,7 @@ This repository is a conservative working foundation, not a claim that arbitrary
 - short-lived, server-side encrypted Zotero API-key connections
 - personal/group library selection and optional collection creation/reuse
 - exact DOI/title deduplication with a review screen before any write
+- Crossref DOI verification and canonical metadata download before new Zotero items are written
 - create/reuse audit data, canonical Zotero item linkage, and compensating rollback
 - responsive React UI with light/dark themes
 
@@ -48,11 +49,11 @@ Create a dedicated Zotero API key with library write access at [Zotero’s key s
 1. Paste the key and connect. The browser sends it once over the application connection; AutoRef encrypts it in server memory and never writes or returns it.
 2. Select a writable personal or group library and optionally name a collection.
 3. Review which references will be created and which exact DOI/title matches will be reused.
-4. Confirm the import. AutoRef writes in batches, attempts compensating deletion if a batch partially fails, and generates a linked DOCX using Zotero’s returned keys.
+4. Confirm the import. Before any Zotero write, AutoRef verifies DOIs for new items with Crossref and uses the returned canonical metadata. It then writes in batches, attempts compensating deletion if a batch partially fails, and generates a linked DOCX using Zotero’s returned keys.
 
-Connections expire after 30 minutes by default. Set `AUTOREF_CREDENTIAL_TTL_MINUTES` to change this. For stable encrypted credentials across application workers, set `AUTOREF_CREDENTIAL_KEY` to a Fernet key; otherwise a process-local key is generated on startup. `AUTOREF_ZOTERO_API_URL` defaults to `https://api.zotero.org`.
+Connections expire after 30 minutes by default. Set `AUTOREF_CREDENTIAL_TTL_MINUTES` to change this. For stable encrypted credentials across application workers, set `AUTOREF_CREDENTIAL_KEY` to a Fernet key; otherwise a process-local key is generated on startup. `AUTOREF_ZOTERO_API_URL` defaults to `https://api.zotero.org`, and `AUTOREF_CROSSREF_API_URL` defaults to `https://api.crossref.org`. Set `AUTOREF_CROSSREF_MAILTO` to a contact email to use Crossref's polite pool.
 
-Use HTTPS outside localhost. AutoRef never puts API keys in URLs or application logs. Importing sends reference metadata to the selected Zotero library; plain local conversion makes no third-party request.
+Use HTTPS outside localhost. AutoRef never puts API keys in URLs or application logs. Confirming a linked import sends each DOI for a new item to Crossref and sends the resulting reference metadata to the selected Zotero library; plain local conversion makes no third-party request.
 
 ## Outputs
 
