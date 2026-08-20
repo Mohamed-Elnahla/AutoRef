@@ -27,7 +27,7 @@ mcp = MCPServer(
     "AutoRef",
     version="0.3.0",
     instructions=(
-        "Convert ordinary DOCX citations into native Zotero Word fields. Analyze before "
+        "Convert ordinary DOCX citations and reference lists into native Zotero Word fields. Analyze before "
         "conversion, surface warnings, and never call import_to_zotero until the user has "
         "reviewed a preview and explicitly confirmed the write."
     ),
@@ -183,7 +183,7 @@ def analyze_document(
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(open_world_hint=False))
 def convert_document(job_id: str) -> dict[str, Any]:
-    """Convert an analyzed job to Zotero Word fields and generate CSL-JSON plus an audit report.
+    """Convert citations and the reference list to Zotero fields; generate CSL-JSON and a report.
 
     This credential-free conversion embeds reference metadata but cannot link fields to Zotero
     library item keys. Use the preview/import tools for fully linked fields.
@@ -397,8 +397,8 @@ def import_to_zotero(
 def capabilities() -> str:
     """Describe AutoRef's supported conversion workflow and safety boundary."""
     return (
-        "AutoRef analyzes DOCX files, converts unambiguous citation spans to native Zotero Word "
-        "fields, exports CSL-JSON and audit reports, and can create/reuse Zotero records after a "
+        "AutoRef analyzes DOCX files, converts unambiguous citation spans and the detected reference "
+        "list to native Zotero Word fields, exports CSL-JSON and audit reports, and can create/reuse Zotero records after a "
         "separate preview and explicit confirmation. Ambiguous citations remain unchanged."
     )
 

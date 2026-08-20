@@ -7,7 +7,7 @@
 - traverse footnotes, endnotes, headers, text boxes, and comments explicitly
 - preserve citations that span hyperlinks/content controls through targeted fixtures
 - existing-Zotero-field detection and idempotent reprocessing
-- optional dynamic bibliography after Word/Zotero interoperability tests
+- Word/Zotero interoperability tests for dynamic bibliography refresh and style changes
 - document-style classifier beyond author-date versus numeric
 - multilingual heading catalog and bidirectional-text tests
 - production ZIP bomb limits, malware scanning, rate limiting, auth, and object storage

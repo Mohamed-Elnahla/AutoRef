@@ -33,7 +33,12 @@ type Analysis = {
 };
 
 type Conversion = {
-  report: { converted_citations: number; skipped_citations: string[] };
+  report: {
+    converted_citations: number;
+    skipped_citations: string[];
+    converted_bibliography: boolean;
+    bibliography_entries: number;
+  };
   artifacts: { document: string; report: string; library?: string };
 };
 
@@ -345,7 +350,7 @@ function App() {
         <section className="how">
           <div><span>01</span><h2>Read</h2><p>Locate reference sections and citation callouts across author-date and numeric styles.</p></div>
           <div><span>02</span><h2>Resolve</h2><p>Parse metadata, match each callout conservatively, and surface ambiguity instead of guessing.</p></div>
-          <div><span>03</span><h2>Return</h2><p>Patch only citation spans and deliver the DOCX, Zotero import file, and an audit report.</p></div>
+          <div><span>03</span><h2>Return</h2><p>Patch citation spans, make the reference list refreshable, and deliver the DOCX, Zotero import file, and an audit report.</p></div>
         </section>
       </main>
 

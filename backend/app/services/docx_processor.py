@@ -36,6 +36,9 @@ REFERENCE_HEADINGS = {
 STOP_HEADING_RE = re.compile(
     r"^(appendix|annex|supplementary|acknowledg|declaration)", re.IGNORECASE
 )
+ZOTERO_BIBLIOGRAPHY_CODE = (
+    ' ADDIN ZOTERO_BIBL {"uncited":[],"omitted":[],"custom":[]} CSL_BIBLIOGRAPHY '
+)
 
 
 class DocxError(ValueError):
@@ -215,6 +218,56 @@ def _field_runs(candidate: CitationCandidate, refs, rpr, zotero_items=None):
     ]
 
 
+def _reference_result_paragraphs(
+    paragraphs: list[etree._Element], heading_index: int | None
+) -> list[etree._Element]:
+    if heading_index is None:
+        return []
+    result: list[etree._Element] = []
+    for paragraph in paragraphs[heading_index + 1 :]:
+        text = re.sub(r"\s+", " ", paragraph_text(paragraph)).strip()
+        if not text:
+            continue
+        style = _paragraph_style(paragraph).casefold()
+        if STOP_HEADING_RE.match(text) and ("heading" in style or len(text) < 100):
+            break
+        result.append(paragraph)
+    return result
+
+
+def _wrap_reference_list_as_bibliography(
+    paragraphs: list[etree._Element], heading_index: int | None
+) -> int:
+    result_paragraphs = _reference_result_paragraphs(paragraphs, heading_index)
+    if not result_paragraphs:
+        return 0
+    if any(
+        "ZOTERO_BIBL" in instruction
+        for paragraph in result_paragraphs
+        for instruction in paragraph.xpath(".//w:instrText/text()", namespaces=NS)
+    ):
+        return 0
+
+    begin = etree.Element(qn("fldChar"))
+    begin.set(qn("fldCharType"), "begin")
+    begin.set(qn("dirty"), "true")
+    instruction = etree.Element(qn("instrText"))
+    instruction.set(f"{{{XML_NS}}}space", "preserve")
+    instruction.text = ZOTERO_BIBLIOGRAPHY_CODE
+    separate = etree.Element(qn("fldChar"))
+    separate.set(qn("fldCharType"), "separate")
+    end = etree.Element(qn("fldChar"))
+    end.set(qn("fldCharType"), "end")
+
+    first = result_paragraphs[0]
+    insertion_index = 1 if len(first) and first[0].tag == qn("pPr") else 0
+    for run in (_new_run(begin), _new_run(instruction), _new_run(separate)):
+        first.insert(insertion_index, run)
+        insertion_index += 1
+    result_paragraphs[-1].append(_new_run(end))
+    return len(result_paragraphs)
+
+
 def _replace_span(paragraph, candidate: CitationCandidate, refs, zotero_items=None) -> None:
     text_nodes = paragraph.xpath(".//w:t", namespaces=NS)
     positions: list[tuple[etree._Element, int, int]] = []
@@ -279,6 +332,9 @@ def convert_docx(
                     converted += 1
                 except DocxError as exc:
                     skipped.append(str(exc))
+        bibliography_entries = _wrap_reference_list_as_bibliography(
+            paragraphs, analysis.reference_heading_index
+        )
         document_xml = etree.tostring(
             root, xml_declaration=True, encoding="UTF-8", standalone=True
         )
@@ -289,6 +345,8 @@ def convert_docx(
                 target.writestr(info, payload)
     report = {
         "converted_citations": converted,
+        "converted_bibliography": bool(bibliography_entries),
+        "bibliography_entries": bibliography_entries,
         "skipped_citations": skipped,
         "unchanged_parts": "All DOCX package parts except word/document.xml are copied byte-for-byte.",
         "zotero_linkage": (

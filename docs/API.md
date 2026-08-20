@@ -12,7 +12,7 @@ Returns `201` with a job ID, detected style, parsed references, citation candida
 
 ## `POST /api/v1/documents/{job_id}/convert`
 
-Re-analyzes the stored source and converts only candidates with an unambiguous reference match. Returns artifact URLs plus converted/skipped counts.
+Re-analyzes the stored source, converts only candidates with an unambiguous reference match, and wraps the detected reference-list body in a refreshable Zotero bibliography field. Returns artifact URLs plus converted/skipped counts and bibliography conversion status.
 
 This local endpoint does not call Zotero and its fields are not linked to library objects.
 

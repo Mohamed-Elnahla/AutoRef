@@ -24,11 +24,11 @@ Zotero imports CSL-JSON directly, and the same model is embedded in citation fie
 
 The application starts with an explainable APA-like parser and confidence flags. GROBID is the preferred service adapter. The converter will not depend on a parser-specific representation.
 
-## ADR-005: Do not generate a dynamic bibliography in phase one
+## ADR-005: Preserve the reference list as the cached result of a dynamic bibliography
 
 **Status:** accepted
 
-Replacing a formatted reference list with `ZOTERO_BIBL` requires reliable style identification, Zotero document preferences, disambiguation state, and layout verification. Keeping the list untouched satisfies content preservation and avoids duplicate/changed bibliography output.
+AutoRef wraps the detected reference-list paragraphs in Zotero's standard `ZOTERO_BIBL` field and keeps the original formatted text as its cached result. This makes the list refreshable without changing its initial appearance. Zotero applies the user's document style and preferences when the field is refreshed.
 
 ## ADR-006: Single application, split source trees
 

@@ -1,6 +1,6 @@
 # AutoRef
 
-AutoRef is a local-first web application that turns plain-text citations in a Word research paper into native Zotero Word fields while preserving the surrounding DOCX package. Phase 2 can create or reuse items in a personal or group Zotero library, then write the returned item keys and canonical URIs into the document. A credential-free CSL-JSON workflow remains available.
+AutoRef is a local-first web application that turns plain-text citations and the detected reference list in a Word research paper into native Zotero Word fields while preserving the surrounding DOCX package. Phase 2 can create or reuse items in a personal or group Zotero library, then write the returned item keys and canonical URIs into the document. A credential-free CSL-JSON workflow remains available.
 
 This repository is a conservative working foundation, not a claim that arbitrary academic documents can be converted without review. AutoRef converts only unambiguous matches and leaves uncertain text untouched. Zotero writes require a separate, explicit preview and confirmation.
 

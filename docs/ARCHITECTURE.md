@@ -52,8 +52,9 @@ AI client -- stdio or Streamable HTTP --> AutoRef MCP server
 6. Build author-year and ordinal indexes.
 7. detect citation spans before the reference section and classify each as matched, ambiguous, or unmatched.
 8. Patch only matched character spans, in reverse order inside each paragraph.
-9. Copy every other DOCX ZIP part using its original `ZipInfo` metadata and payload.
-10. Emit the converted DOCX, CSL-JSON library, and audit report.
+9. Wrap the detected reference-list body in one `ZOTERO_BIBL` field while retaining its original paragraphs as the cached visible result.
+10. Copy every other DOCX ZIP part using its original `ZipInfo` metadata and payload.
+11. Emit the converted DOCX, CSL-JSON library, and audit report.
 
 ## Phase 2 linked-import pipeline
 
@@ -110,7 +111,7 @@ OOXML serialization can change namespace declaration ordering inside `document.x
 - The baseline reference parser is strongest on APA-like references; MLA, Chicago notes, legal citations, and multilingual/no-space scripts need trained adapters and fixtures.
 - Citations nested in hyperlinks, content controls, equations, text boxes, tracked changes, or existing fields are not blindly rewritten.
 - Footnote/endnote citation conversion is a separate document-part traversal and is not enabled yet.
-- Static bibliographies remain static. Replacing them with a `ZOTERO_BIBL` field is deferred until citation style and document preferences can be reproduced and verified.
+- The detected bibliography body becomes one dynamic `ZOTERO_BIBL` field. Its original paragraphs remain as the cached visible result; Zotero controls regenerated formatting when the user refreshes the document.
 - CSL-JSON import does not relink word-processor citations; use confirmed API import for linkage.
 - Phase 2 uses user-created scoped API keys. OAuth and durable multi-worker sessions remain roadmap work.
 - Deduplication is deliberately exact and only proposes reuse; fuzzy matching and manual per-row overrides remain roadmap work.

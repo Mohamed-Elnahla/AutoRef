@@ -1,11 +1,11 @@
 ---
 name: autoref-docx
-description: Analyze research DOCX files, convert plain-text citations into native Zotero Word fields, export Zotero-importable CSL-JSON, or create fully linked Zotero citations after a reviewed import. Use for requests to make an ordinary Word paper Zotero-aware, audit citation matching, or prepare a Zotero library import. Do not use for non-DOCX files or general Word editing.
+description: Analyze research DOCX files, convert plain-text citations and reference lists into native Zotero Word fields, export Zotero-importable CSL-JSON, or create fully linked Zotero citations after a reviewed import. Use for requests to make an ordinary Word paper Zotero-aware, audit citation matching, or prepare a Zotero library import. Do not use for non-DOCX files or general Word editing.
 ---
 
 # AutoRef DOCX
 
-Use the AutoRef MCP tools to preserve the source document while converting only unambiguous citation matches. Keep unresolved or structurally complex text unchanged and report the warnings.
+Use the AutoRef MCP tools to preserve the source document while converting only unambiguous citation matches and wrapping the detected reference-list body in a dynamic Zotero bibliography field. Keep unresolved or structurally complex text unchanged and report the warnings.
 
 ## Local conversion
 
