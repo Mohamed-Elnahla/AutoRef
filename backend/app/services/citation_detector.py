@@ -99,17 +99,24 @@ def detect_citations(
         for match in NARRATIVE_RE.finditer(text):
             if any(start <= match.start() < end for start, end in occupied):
                 continue
-            key = (_surname(match.group("authors")), int(match.group("year")[:4]))
+            authors = match.group("authors")
+            key = (_surname(authors), int(match.group("year")[:4]))
             refs = index.get(key, [])
             warning = "" if len(refs) == 1 else f"{'ambiguous' if refs else 'unmatched'} narrative citation"
             candidates.append(
                 CitationCandidate(
                     paragraph_index=paragraph_index,
-                    start=match.start("year") - 1,
+                    start=match.start(),
                     end=match.end(),
-                    text=f"({match.group('year')})",
+                    text=match.group(0),
                     kind="author-date",
-                    items=[CitationItem(reference_id=refs[0].id, suppress_author=True)]
+                    items=[
+                        CitationItem(
+                            reference_id=refs[0].id,
+                            prefix=f"{authors} ",
+                            suppress_author=True,
+                        )
+                    ]
                     if len(refs) == 1
                     else [],
                     confidence=0.96 if len(refs) == 1 else 0.5,

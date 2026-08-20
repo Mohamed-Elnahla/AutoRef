@@ -64,3 +64,23 @@ def test_linked_conversion_uses_real_zotero_key_and_uri():
         "http://zotero.org/users/7/items/ABCD2345"
     ]
     assert report["zotero_linkage"].startswith("Citations use canonical")
+
+
+def test_narrative_conversion_wraps_author_and_year_in_one_field():
+    source = _fixture()
+    analysis = analyze_docx(source, "paper.docx")
+    converted, _ = convert_docx(source, analysis)
+
+    with zipfile.ZipFile(io.BytesIO(converted)) as archive:
+        root = etree.fromstring(archive.read("word/document.xml"))
+        instruction = "".join(root.xpath(".//w:instrText/text()", namespaces=NS))
+        payload = json.loads(instruction.split("CSL_CITATION ", 1)[1].strip())
+        first_paragraph = root.xpath(".//w:p[1]", namespaces=NS)[0]
+
+    assert payload["properties"]["formattedCitation"] == "Smith (2024)"
+    assert payload["citationItems"][0]["prefix"] == "Smith "
+    assert payload["citationItems"][0]["suppress-author"] is True
+    assert "".join(first_paragraph.xpath(".//w:t/text()", namespaces=NS)) == (
+        "Smith (2024) supports this."
+    )
+    assert (first_paragraph.xpath("./w:r[1]/w:t/text()", namespaces=NS) or [""])[0] == ""

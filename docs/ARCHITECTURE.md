@@ -87,7 +87,10 @@ Each citation uses a complex OOXML field:
 
 The JSON stores the original visible citation in `properties`, each matched item in `citationItems`, embedded CSL `itemData`, and the CSL citation schema URL. The visible result is intentionally the exact source text. Zotero can later regenerate it when the user refreshes or edits the citation.
 
-Narrative citations keep the author text static and convert only the year parentheses with `suppress-author: true`. This follows the behavior Zotero can reproduce across author-date styles.
+Narrative citations convert the complete author-and-year span into one field. The original
+author wording is stored as the citation-item prefix with `suppress-author: true`, preserving
+forms such as `Bragadin and Kähkönen (2016)` while keeping the whole visible citation inside
+the Zotero field.
 
 ## Fidelity contract
 

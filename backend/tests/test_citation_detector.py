@@ -12,9 +12,28 @@ def test_parenthetical_and_narrative_detection():
     text = "Smith (2024) found this, as later confirmed (Jones, 2023)."
     found = detect_citations([text, "References"], refs, 1)
     assert len(found) == 2
-    assert found[0].text == "(2024)"
+    assert found[0].text == "Smith (2024)"
+    assert found[0].start == 0
+    assert found[0].items[0].prefix == "Smith "
     assert found[0].items[0].suppress_author is True
     assert found[1].text == "(Jones, 2023)"
+
+
+def test_two_author_narrative_detection_covers_the_entire_citation():
+    refs = parse_references(
+        [
+            "Bragadin, M. A., & Kähkönen, K. (2016). Schedule health assessment of "
+            "construction projects. Construction Management and Economics, 34(12), 875-897."
+        ]
+    )
+    text = "Bragadin and Kähkönen (2016) introduced the method."
+    found = detect_citations([text, "References"], refs, 1)
+
+    assert len(found) == 1
+    assert found[0].text == "Bragadin and Kähkönen (2016)"
+    assert text[found[0].start : found[0].end] == found[0].text
+    assert found[0].items[0].prefix == "Bragadin and Kähkönen "
+    assert found[0].items[0].suppress_author is True
 
 
 def test_numeric_ranges_map_to_reference_order():

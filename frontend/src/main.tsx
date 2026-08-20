@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowRight,
@@ -69,6 +69,7 @@ function App() {
   const [libraryIndex, setLibraryIndex] = useState(0);
   const [collectionName, setCollectionName] = useState("");
   const [plan, setPlan] = useState<ZoteroPlan | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -219,8 +220,18 @@ function App() {
 
         <section className="workspace" aria-live="polite">
           {!file ? (
-            <label
+            <div
               className={`dropzone ${dragging ? "dragging" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-label="Choose a DOCX document"
+              onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
               onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
               onDragLeave={() => setDragging(false)}
               onDrop={(event) => {
@@ -229,12 +240,30 @@ function App() {
                 choose(event.dataTransfer.files[0]);
               }}
             >
-              <input type="file" accept=".docx" onChange={(event) => choose(event.target.files?.[0])} />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  choose(event.target.files?.[0]);
+                  event.currentTarget.value = "";
+                }}
+              />
               <span className="upload-icon"><UploadCloud size={27} /></span>
               <strong>Drop your research paper here</strong>
               <span>or click to choose a DOCX · up to 30 MB</span>
-              <button className="secondary" type="button">Choose document</button>
-            </label>
+              <button
+                className="secondary"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+              >
+                Choose document
+              </button>
+            </div>
           ) : (
             <div className="job-card">
               <div className="file-row">
