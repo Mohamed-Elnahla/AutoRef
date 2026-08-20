@@ -1,0 +1,18 @@
+services:
+  autoref:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      AUTOREF_JOB_ROOT: /app/data/jobs
+      AUTOREF_JOB_TTL_HOURS: "24"
+    volumes:
+      - autoref-jobs:/app/data/jobs
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  autoref-jobs:
