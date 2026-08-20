@@ -141,9 +141,15 @@ def test_execute_creates_collection_and_adds_reused_item_to_it():
                 headers={"Last-Modified-Version": "9"},
                 json={"successful": {"0": {"key": "COLLECT1"}}},
             )
-        if request.method == "POST" and request.url.path.endswith("/collections/COLLECT1/items"):
-            assert json.loads(request.content) == ["EXISTING"]
-            return httpx.Response(200, json={})
+        if request.method == "GET" and request.url.path.endswith("/items/EXISTING"):
+            return httpx.Response(
+                200,
+                json={"data": {"key": "EXISTING", "version": 10, "collections": ["OTHER"]}},
+            )
+        if request.method == "PATCH" and request.url.path.endswith("/items/EXISTING"):
+            assert request.headers["If-Unmodified-Since-Version"] == "10"
+            assert json.loads(request.content) == {"collections": ["OTHER", "COLLECT1"]}
+            return httpx.Response(204)
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
@@ -154,7 +160,25 @@ def test_execute_creates_collection_and_adds_reused_item_to_it():
 
     assert links[reference.id]["key"] == "EXISTING"
     assert audit["collection"] == {"name": "  AutoRef imports  ", "key": "COLLECT1", "created": True}
-    assert [request.method for request in requests] == ["GET", "POST", "POST"]
+    assert [request.method for request in requests] == ["GET", "POST", "GET", "PATCH"]
+
+
+def test_execute_does_not_patch_reused_item_already_in_collection():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/collections"):
+            return httpx.Response(200, json=[{"data": {"name": "Imports", "key": "COLLECT1"}}])
+        if request.method == "GET" and request.url.path.endswith("/items/EXISTING"):
+            return httpx.Response(
+                200,
+                json={"data": {"key": "EXISTING", "version": 10, "collections": ["COLLECT1"]}},
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    reference = _reference()
+    plan = {"entries": [{"reference_id": reference.id, "action": "reuse", "item_key": "EXISTING"}]}
+    client.execute(Library("user", 7, "Mine"), [reference], plan, "Imports")
+    client.close()
 
 
 def test_collection_reuse_searches_past_first_page_without_creating_duplicate():

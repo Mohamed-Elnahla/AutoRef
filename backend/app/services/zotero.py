@@ -274,12 +274,25 @@ class ZoteroClient:
     ) -> None:
         if not collection_key or not item_keys:
             return
-        for offset in range(0, len(item_keys), 50):
+        # Collection membership is changed through each item's ``collections``
+        # property. Zotero has no POST /collections/{key}/items write endpoint.
+        # Fetching the editable item first preserves its existing collections and
+        # supplies the version required for a safe PATCH.
+        for item_key in item_keys:
+            item = self._request("GET", f"{library.prefix}/items/{item_key}").json()
+            data = item.get("data", item)
+            collections = list(data.get("collections") or [])
+            if collection_key in collections:
+                continue
+            collections.append(collection_key)
+            version = data.get("version")
+            if version is None:
+                raise ZoteroError("Zotero did not return a version for an existing item.")
             self._request(
-                "POST",
-                f"{library.prefix}/collections/{collection_key}/items",
-                headers={"Zotero-Write-Token": uuid.uuid4().hex},
-                json=item_keys[offset : offset + 50],
+                "PATCH",
+                f"{library.prefix}/items/{item_key}",
+                headers={"If-Unmodified-Since-Version": str(version)},
+                json={"collections": collections},
             )
 
     def execute(
