@@ -6,6 +6,7 @@
 2. OOXML tests verify the Zotero instruction payload, cached visible text, and byte preservation of unrelated ZIP parts.
 3. API tests should cover upload limits, corrupt archives, expired jobs, and artifact path confinement.
 4. Frontend compilation runs TypeScript strict checks before Vite builds.
+5. Mocked Zotero API tests validate exact DOI reuse, item payload creation, returned key/URI linkage, and should expand to cover permission discovery and rollback conflicts.
 
 ## DOCX fidelity gate
 
@@ -20,4 +21,3 @@ For each representative fixture:
 7. Open in current Microsoft Word with Zotero installed, run Add/Edit Citation and Refresh, and record the result.
 
 LibreOffice rendering checks layout, but it cannot prove Zotero plugin compatibility. A release therefore needs both render regression and manual/automated Word-plus-Zotero interoperability tests.
-

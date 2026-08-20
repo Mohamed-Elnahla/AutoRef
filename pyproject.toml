@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "autoref"
-version = "0.1.0"
+version = "0.2.0"
 description = "Convert plain-text citations in DOCX research papers into Zotero fields"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
+  "cryptography>=45,<47",
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
   "lxml>=5.4,<7",
@@ -30,4 +31,3 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-

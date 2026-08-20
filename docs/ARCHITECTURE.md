@@ -20,9 +20,9 @@ FastAPI application
   +-- reference parser adapter
   +-- CSL-JSON exporter and audit report
         |
-        +-- Phase 1: built-in deterministic parser
-        +-- Optional next adapter: self-hosted GROBID
-        +-- Phase 2: Zotero Web API + OAuth/API key
+        +-- built-in deterministic parser
+        +-- optional future adapter: self-hosted GROBID
+        +-- opt-in Zotero Web API v3 client + encrypted credential vault
 ```
 
 ## Backend modules
@@ -33,6 +33,8 @@ FastAPI application
 - `reference_parser.py`: deterministic low-dependency baseline that converts APA-like reference strings to CSL-shaped records.
 - `citation_detector.py`: author-year and numeric recognition plus bibliography matching.
 - `models.py`: internal evidence and output contracts.
+- `credential_vault.py`: short-lived Fernet-encrypted API keys held in process memory.
+- `zotero.py`: permission discovery, library selection, deduplication, item/collection writes, and rollback.
 
 ## Conversion pipeline
 
@@ -46,6 +48,22 @@ FastAPI application
 8. Patch only matched character spans, in reverse order inside each paragraph.
 9. Copy every other DOCX ZIP part using its original `ZipInfo` metadata and payload.
 10. Emit the converted DOCX, CSL-JSON library, and audit report.
+
+## Phase 2 linked-import pipeline
+
+```text
+API key -> /keys/current -> writable personal/group libraries
+                                  |
+document references -> exact DOI/title lookup -> create/reuse preview
+                                  |
+                         explicit confirmation
+                                  |
+             optional collection + item batches (max 50)
+                                  |
+             returned keys/URIs -> linked Word fields + audit
+```
+
+The preview is saved in the expiring document job and bound to its library, collection, and digest. Import rejects changed options with `409`. Reused records are never modified. New records are created in batches of at most 50. If Zotero reports a partial failure, AutoRef attempts version-guarded deletion of items it created and removes a newly created collection when possible; it never deletes reused items.
 
 ## Word field representation
 
@@ -76,24 +94,26 @@ Narrative citations keep the author text static and convert only the year parent
 
 OOXML serialization can change namespace declaration ordering inside `document.xml`, so the output is semantically and visually equivalent rather than byte-identical as a whole file.
 
-## Known phase-one boundaries
+## Known boundaries
 
 - The baseline reference parser is strongest on APA-like references; MLA, Chicago notes, legal citations, and multilingual/no-space scripts need trained adapters and fixtures.
 - Citations nested in hyperlinks, content controls, equations, text boxes, tracked changes, or existing fields are not blindly rewritten.
 - Footnote/endnote citation conversion is a separate document-part traversal and is not enabled yet.
 - Static bibliographies remain static. Replacing them with a `ZOTERO_BIBL` field is deferred until citation style and document preferences can be reproduced and verified.
-- CSL-JSON import does not relink word-processor citations to newly created Zotero items.
+- CSL-JSON import does not relink word-processor citations; use confirmed API import for linkage.
+- Phase 2 uses user-created scoped API keys. OAuth and durable multi-worker sessions remain roadmap work.
+- Deduplication is deliberately exact and only proposes reuse; fuzzy matching and manual per-row overrides remain roadmap work.
 
 ## Security and privacy
 
-- Files remain on the configured server and are not sent to third-party services by default.
+- Files remain on the configured server and are not sent to third-party services by default. A confirmed Zotero workflow sends parsed reference metadata, not the DOCX, to Zotero.
 - Jobs use server-generated opaque IDs and fixed artifact names resolved through allowlists.
 - ZIP structure and required parts are validated before processing.
 - Upload size defaults to 30 MB; jobs expire after 24 hours.
+- API keys are transmitted only in headers, encrypted in memory, never persisted to job files, never returned, and expire after 30 minutes by default.
 - External metadata enrichment must be explicit because DOIs, titles, and authors can disclose research interests.
 - Production should add malware scanning, ZIP expansion limits, authentication, rate limits, encrypted storage, and a durable cleanup worker.
 
 ## Deployment shape
 
 Phase one is intentionally a single deployable web application: Vite produces static assets that FastAPI serves alongside `/api`. The job store is local disk, suitable for one instance. Multi-instance deployment requires object storage, a shared job database, idempotent workers, and a queue.
-

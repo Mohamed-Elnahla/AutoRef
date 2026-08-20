@@ -42,3 +42,20 @@ React/TypeScript owns the interaction layer; FastAPI owns file processing. Produ
 
 Research papers and bibliographies can be sensitive. The default system makes no external calls, uses opaque jobs, and deletes local job folders after a configurable TTL. GROBID can be self-hosted. Crossref or Zotero calls require explicit configuration and user action.
 
+## ADR-008: Preview-gated scoped API-key integration
+
+**Status:** accepted for phase two
+
+AutoRef accepts user-created Zotero keys rather than silently persisting account credentials. It discovers only writable libraries, encrypts keys in a short-lived process-memory vault, and requires a create/reuse preview before writes. OAuth remains appropriate for a hosted multi-user deployment but is not required for the local-first baseline.
+
+## ADR-009: Exact deduplication and non-destructive reuse
+
+**Status:** accepted
+
+DOI matches take priority, followed by normalized exact title matches. Existing items are reused without mutation. AutoRef does not fuzzy-merge bibliographic data because a false merge is harder to detect and repair than a duplicate.
+
+## ADR-010: Compensating rollback for Zotero writes
+
+**Status:** accepted
+
+Zotero multi-object writes can partially succeed. AutoRef records returned keys, uses version-guarded delete requests for newly created objects after a partial failure, and never deletes reused items. This is a compensating transaction, not an atomic guarantee: concurrent remote edits can correctly prevent rollback and require manual recovery.

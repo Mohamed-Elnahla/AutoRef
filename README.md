@@ -1,8 +1,8 @@
 # AutoRef
 
-AutoRef is a local-first web application that turns plain-text citations in a Word research paper into native Zotero Word fields while preserving the surrounding DOCX package. It also exports the parsed bibliography as CSL-JSON for Zotero import and produces a conversion audit report.
+AutoRef is a local-first web application that turns plain-text citations in a Word research paper into native Zotero Word fields while preserving the surrounding DOCX package. Phase 2 can create or reuse items in a personal or group Zotero library, then write the returned item keys and canonical URIs into the document. A credential-free CSL-JSON workflow remains available.
 
-This repository is a working phase-one foundation, not a claim that arbitrary academic documents can be converted without review. AutoRef converts only unambiguous matches and leaves uncertain text untouched.
+This repository is a conservative working foundation, not a claim that arbitrary academic documents can be converted without review. AutoRef converts only unambiguous matches and leaves uncertain text untouched. Zotero writes require a separate, explicit preview and confirmation.
 
 ## What works
 
@@ -13,6 +13,10 @@ This repository is a working phase-one foundation, not a claim that arbitrary ac
 - self-contained `ADDIN ZOTERO_ITEM CSL_CITATION` complex Word fields
 - minimal OOXML patching: non-document package parts are copied byte-for-byte
 - Zotero-importable CSL-JSON and a machine-readable conversion report
+- short-lived, server-side encrypted Zotero API-key connections
+- personal/group library selection and optional collection creation/reuse
+- exact DOI/title deduplication with a review screen before any write
+- create/reuse audit data, canonical Zotero item linkage, and compensating rollback
 - responsive React UI with light/dark themes
 
 ## Quick start
@@ -37,6 +41,19 @@ ruff check backend
 cd frontend && pnpm build
 ```
 
+## Zotero-linked workflow
+
+Create a dedicated Zotero API key with library write access at [Zotero’s key settings](https://www.zotero.org/settings/keys/new). After document analysis:
+
+1. Paste the key and connect. The browser sends it once over the application connection; AutoRef encrypts it in server memory and never writes or returns it.
+2. Select a writable personal or group library and optionally name a collection.
+3. Review which references will be created and which exact DOI/title matches will be reused.
+4. Confirm the import. AutoRef writes in batches, attempts compensating deletion if a batch partially fails, and generates a linked DOCX using Zotero’s returned keys.
+
+Connections expire after 30 minutes by default. Set `AUTOREF_CREDENTIAL_TTL_MINUTES` to change this. For stable encrypted credentials across application workers, set `AUTOREF_CREDENTIAL_KEY` to a Fernet key; otherwise a process-local key is generated on startup. `AUTOREF_ZOTERO_API_URL` defaults to `https://api.zotero.org`.
+
+Use HTTPS outside localhost. AutoRef never puts API keys in URLs or application logs. Importing sends reference metadata to the selected Zotero library; plain local conversion makes no third-party request.
+
 ## Outputs
 
 Each successful conversion provides:
@@ -45,9 +62,10 @@ Each successful conversion provides:
 2. `*-library.csl.json` — parsed references importable with Zotero's File → Import → A file flow.
 3. `*-conversion-report.json` — counts, warnings, metadata, and skipped candidates.
 
-## Phase-one limitation
+A confirmed Zotero import instead returns `*-zotero-linked.docx` and `*-zotero-import-report.json`. CSL-JSON is unnecessary in that path because the items already exist in the chosen library.
 
-Zotero import creates new item keys. It does not preserve links from an existing word-processor document, so the generated fields contain embedded item metadata and initially appear to Zotero as orphaned citations. They are still native, refreshable fields, but the separately imported CSL-JSON records are not the same linked library objects. Phase two solves this by creating items through the Zotero API first, then writing their actual library URIs into the fields.
+## Local conversion limitation
+
+CSL-JSON import creates new item keys, so credential-free output cannot link its Word fields to the separately imported records. Those fields retain embedded metadata and remain editable, but initially appear as orphaned citations. Use the Zotero-linked workflow when stable library linkage matters.
 
 Read [the architecture](docs/ARCHITECTURE.md), [research notes](docs/OPEN_SOURCE_RESEARCH.md), [decisions](docs/DECISIONS.md), and [roadmap](docs/ROADMAP.md) before extending the converter.
-

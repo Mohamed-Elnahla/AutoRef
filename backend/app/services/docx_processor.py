@@ -106,8 +106,8 @@ def analyze_docx(data: bytes, source_name: str) -> Analysis:
     if unmatched:
         warnings.append(f"{unmatched} citation candidate(s) could not be matched unambiguously.")
     warnings.append(
-        "Phase 1 embeds self-contained orphaned Zotero citations. Importing the CSL-JSON library "
-        "does not relink those fields to the newly imported library items; API-backed relinking is phase 2."
+        "Local conversion embeds self-contained Zotero citations but cannot link them to library "
+        "items. Connect Zotero and confirm an import preview to generate fully linked fields."
     )
     return Analysis(
         source_name=source_name,
@@ -151,14 +151,26 @@ def _text_element(value: str) -> etree._Element:
     return node
 
 
-def _citation_code(candidate: CitationCandidate, references: dict[str, Reference]) -> str:
+def _citation_code(
+    candidate: CitationCandidate,
+    references: dict[str, Reference],
+    zotero_items: dict[str, dict[str, str]] | None = None,
+) -> str:
     citation_items: list[dict[str, Any]] = []
     for linked in candidate.items:
         ref = references[linked.reference_id]
+        linked_item = (zotero_items or {}).get(ref.id)
+        item_data = ref.to_csl()
+        if linked_item:
+            item_data["id"] = linked_item["key"]
         item: dict[str, Any] = {
-            "id": ref.id,
-            "uris": [f"http://zotero.org/users/local/AUTOREF/items/{ref.id[-8:].upper()}"],
-            "itemData": ref.to_csl(),
+            "id": linked_item["key"] if linked_item else ref.id,
+            "uris": [
+                linked_item["uri"]
+                if linked_item
+                else f"http://zotero.org/users/local/AUTOREF/items/{ref.id[-8:].upper()}"
+            ],
+            "itemData": item_data,
         }
         if linked.locator:
             item.update({"locator": linked.locator, "label": linked.label})
@@ -183,13 +195,13 @@ def _citation_code(candidate: CitationCandidate, references: dict[str, Reference
     return f" ADDIN ZOTERO_ITEM CSL_CITATION {compact} "
 
 
-def _field_runs(candidate: CitationCandidate, refs: dict[str, Reference], rpr):
+def _field_runs(candidate: CitationCandidate, refs, rpr, zotero_items=None):
     begin = etree.Element(qn("fldChar"))
     begin.set(qn("fldCharType"), "begin")
     begin.set(qn("dirty"), "true")
     instruction = etree.Element(qn("instrText"))
     instruction.set(f"{{{XML_NS}}}space", "preserve")
-    instruction.text = _citation_code(candidate, refs)
+    instruction.text = _citation_code(candidate, refs, zotero_items)
     separate = etree.Element(qn("fldChar"))
     separate.set(qn("fldCharType"), "separate")
     end = etree.Element(qn("fldChar"))
@@ -203,7 +215,7 @@ def _field_runs(candidate: CitationCandidate, refs: dict[str, Reference], rpr):
     ]
 
 
-def _replace_span(paragraph: etree._Element, candidate: CitationCandidate, refs) -> None:
+def _replace_span(paragraph, candidate: CitationCandidate, refs, zotero_items=None) -> None:
     text_nodes = paragraph.xpath(".//w:t", namespaces=NS)
     positions: list[tuple[etree._Element, int, int]] = []
     cursor = 0
@@ -238,14 +250,18 @@ def _replace_span(paragraph: etree._Element, candidate: CitationCandidate, refs)
             end_node.set(f"{{{XML_NS}}}space", "preserve")
 
     insertion_index = paragraph.index(start_run) + 1
-    for field_run in _field_runs(candidate, refs, rpr):
+    for field_run in _field_runs(candidate, refs, rpr, zotero_items):
         paragraph.insert(insertion_index, field_run)
         insertion_index += 1
     if end_node is start_node and suffix:
         paragraph.insert(insertion_index, _new_run(_text_element(suffix), rpr))
 
 
-def convert_docx(data: bytes, analysis: Analysis) -> tuple[bytes, dict[str, Any]]:
+def convert_docx(
+    data: bytes,
+    analysis: Analysis,
+    zotero_items: dict[str, dict[str, str]] | None = None,
+) -> tuple[bytes, dict[str, Any]]:
     refs = {ref.id: ref for ref in analysis.references}
     selected = [candidate for candidate in analysis.citations if candidate.items]
     with zipfile.ZipFile(io.BytesIO(data)) as source:
@@ -259,7 +275,7 @@ def convert_docx(data: bytes, analysis: Analysis) -> tuple[bytes, dict[str, Any]
         for paragraph_index, candidates in grouped.items():
             for candidate in sorted(candidates, key=lambda item: item.start, reverse=True):
                 try:
-                    _replace_span(paragraphs[paragraph_index], candidate, refs)
+                    _replace_span(paragraphs[paragraph_index], candidate, refs, zotero_items)
                     converted += 1
                 except DocxError as exc:
                     skipped.append(str(exc))
@@ -275,7 +291,11 @@ def convert_docx(data: bytes, analysis: Analysis) -> tuple[bytes, dict[str, Any]
         "converted_citations": converted,
         "skipped_citations": skipped,
         "unchanged_parts": "All DOCX package parts except word/document.xml are copied byte-for-byte.",
-        "zotero_linkage": "Embedded citations are dynamic but orphaned until phase-two API relinking.",
+        "zotero_linkage": (
+            "Citations use canonical Zotero library item keys and URIs."
+            if zotero_items
+            else "Citations contain embedded metadata but are not linked to library items."
+        ),
     }
     return output_buffer.getvalue(), report
 

@@ -55,8 +55,9 @@ class JobStore:
         if name not in allowed:
             raise FileNotFoundError(name)
         meta = self.read_json(job_id, "artifacts.json")
+        if name not in meta:
+            raise FileNotFoundError(name)
         path = self.directory(job_id) / meta[name]
         if not path.is_file():
             raise FileNotFoundError(name)
         return path
-

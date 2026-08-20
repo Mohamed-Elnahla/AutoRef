@@ -43,3 +43,24 @@ def test_analyze_and_convert_preserves_unrelated_parts():
         assert json.loads(payload)["citationItems"][0]["itemData"]["title"] == "First paper"
         visible = "".join(root.xpath(".//w:p[1]//w:t/text()", namespaces=NS))
         assert visible == "Smith (2024) supports this."
+
+
+def test_linked_conversion_uses_real_zotero_key_and_uri():
+    source = _fixture()
+    analysis = analyze_docx(source, "paper.docx")
+    reference_id = analysis.references[0].id
+    converted, report = convert_docx(
+        source,
+        analysis,
+        {reference_id: {"key": "ABCD2345", "uri": "http://zotero.org/users/7/items/ABCD2345"}},
+    )
+    with zipfile.ZipFile(io.BytesIO(converted)) as archive:
+        root = etree.fromstring(archive.read("word/document.xml"))
+        instruction = "".join(root.xpath(".//w:instrText/text()", namespaces=NS))
+        payload = json.loads(instruction.split("CSL_CITATION ", 1)[1].strip())
+    assert payload["citationItems"][0]["id"] == "ABCD2345"
+    assert payload["citationItems"][0]["itemData"]["id"] == "ABCD2345"
+    assert payload["citationItems"][0]["uris"] == [
+        "http://zotero.org/users/7/items/ABCD2345"
+    ]
+    assert report["zotero_linkage"].startswith("Citations use canonical")

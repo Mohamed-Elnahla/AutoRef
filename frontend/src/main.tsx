@@ -8,6 +8,7 @@ import {
   FileText,
   LoaderCircle,
   Moon,
+  KeyRound,
   RefreshCcw,
   ShieldCheck,
   Sun,
@@ -33,7 +34,19 @@ type Analysis = {
 
 type Conversion = {
   report: { converted_citations: number; skipped_citations: string[] };
-  artifacts: Record<"document" | "library" | "report", string>;
+  artifacts: { document: string; report: string; library?: string };
+};
+
+type ZoteroLibrary = { type: "user" | "group"; id: number; name: string };
+type ZoteroConnection = {
+  connection_id: string;
+  expires_in_minutes: number;
+  libraries: ZoteroLibrary[];
+};
+type ZoteroPlan = {
+  plan_id: string;
+  summary: { create: number; reuse: number };
+  entries: Array<{ reference_id: string; title: string; action: "create" | "reuse"; reason?: string }>;
 };
 
 const apiError = async (response: Response) => {
@@ -51,6 +64,11 @@ function App() {
   const [busy, setBusy] = useState<"analyze" | "convert" | null>(null);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [connection, setConnection] = useState<ZoteroConnection | null>(null);
+  const [libraryIndex, setLibraryIndex] = useState(0);
+  const [collectionName, setCollectionName] = useState("");
+  const [plan, setPlan] = useState<ZoteroPlan | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -73,6 +91,7 @@ function App() {
     setFile(next);
     setAnalysis(null);
     setConversion(null);
+    setPlan(null);
     setError("");
   };
 
@@ -108,10 +127,60 @@ function App() {
     }
   };
 
+  const connectZotero = async () => {
+    setBusy("convert");
+    setError("");
+    try {
+      const response = await fetch("/api/v1/zotero/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey }),
+      });
+      if (!response.ok) throw new Error(await apiError(response));
+      setConnection(await response.json());
+      setApiKey("");
+      setLibraryIndex(0);
+      setPlan(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Zotero connection failed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const zoteroRequest = async (action: "preview" | "import") => {
+    if (!analysis || !connection) return;
+    const library = connection.libraries[libraryIndex];
+    setBusy("convert");
+    setError("");
+    try {
+      const response = await fetch(`/api/v1/documents/${analysis.job_id}/zotero/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connection_id: connection.connection_id,
+          library_type: library.type,
+          library_id: library.id,
+          collection_name: collectionName.trim() || null,
+          ...(action === "import" && plan ? { plan_id: plan.plan_id } : {}),
+        }),
+      });
+      if (!response.ok) throw new Error(await apiError(response));
+      const result = await response.json();
+      if (action === "preview") setPlan(result);
+      else setConversion(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Zotero import failed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const reset = () => {
     setFile(null);
     setAnalysis(null);
     setConversion(null);
+    setPlan(null);
     setError("");
   };
 
@@ -194,14 +263,46 @@ function App() {
                     <p className="notice">Only unambiguous matches are converted. Unmatched text stays untouched and is listed in the report.</p>
                   )}
                   {!conversion ? (
-                    <button className="primary wide" onClick={convert} disabled={busy !== null}>
-                      {busy === "convert" ? <LoaderCircle className="spin" size={18} /> : <RefreshCcw size={18} />}
-                      {busy === "convert" ? "Building Zotero fields…" : "Convert matched citations"}
-                    </button>
+                    <div className="conversion-options">
+                      <div className="option-card featured">
+                        <div className="option-heading"><KeyRound size={18} /><div><strong>Link to Zotero library</strong><span>Creates or reuses real library items</span></div></div>
+                        {!connection ? (
+                          <div className="connect-row">
+                            <input
+                              type="password"
+                              value={apiKey}
+                              onChange={(event) => setApiKey(event.target.value)}
+                              placeholder="Zotero API key"
+                              autoComplete="off"
+                            />
+                            <button className="primary" onClick={connectZotero} disabled={busy !== null || apiKey.length < 8}>
+                              {busy === "convert" ? <LoaderCircle className="spin" size={17} /> : "Connect"}
+                            </button>
+                          </div>
+                        ) : !plan ? (
+                          <div className="zotero-options">
+                            <label>Library<select value={libraryIndex} onChange={(event) => { setLibraryIndex(Number(event.target.value)); setPlan(null); }}>
+                              {connection.libraries.map((library, index) => <option key={`${library.type}-${library.id}`} value={index}>{library.name} ({library.type})</option>)}
+                            </select></label>
+                            <label>Collection (optional)<input value={collectionName} onChange={(event) => setCollectionName(event.target.value)} placeholder="AutoRef imports" /></label>
+                            <button className="primary wide" onClick={() => zoteroRequest("preview")} disabled={busy !== null}>Preview import</button>
+                            <small>Key encrypted in memory and expires after {connection.expires_in_minutes} minutes.</small>
+                          </div>
+                        ) : (
+                          <div className="review-plan">
+                            <p><strong>{plan.summary.create}</strong> new item(s) · <strong>{plan.summary.reuse}</strong> exact DOI/title match(es) reused</p>
+                            <div className="plan-list">{plan.entries.slice(0, 6).map((entry) => <span key={entry.reference_id}><b>{entry.action}</b>{entry.title}</span>)}</div>
+                            {plan.entries.length > 6 && <small>Plus {plan.entries.length - 6} more item(s).</small>}
+                            <div className="review-actions"><button className="secondary" onClick={() => setPlan(null)}>Change options</button><button className="primary" onClick={() => zoteroRequest("import")} disabled={busy !== null}>{busy === "convert" ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />} Confirm & link</button></div>
+                          </div>
+                        )}
+                      </div>
+                      <button className="text-link local-convert" onClick={convert} disabled={busy !== null}>Continue without Zotero (embedded metadata only)</button>
+                    </div>
                   ) : (
                     <div className="downloads">
                       <a className="primary" href={conversion.artifacts.document}><Download size={18} /> Zotero DOCX</a>
-                      <a className="secondary" href={conversion.artifacts.library}><Download size={18} /> CSL-JSON library</a>
+                      {conversion.artifacts.library && <a className="secondary" href={conversion.artifacts.library}><Download size={18} /> CSL-JSON library</a>}
                       <a className="text-link" href={conversion.artifacts.report}>Conversion report</a>
                     </div>
                   )}
@@ -219,7 +320,7 @@ function App() {
         </section>
       </main>
 
-      <footer><span>AutoRef · Phase one</span><span>Your files expire automatically after 24 hours.</span></footer>
+      <footer><span>AutoRef · Phase two</span><span>Your files expire automatically after 24 hours.</span></footer>
     </div>
   );
 }
