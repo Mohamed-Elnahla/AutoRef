@@ -147,25 +147,35 @@ class ZoteroClient:
 
     def plan(self, library: Library, references: list[Reference]) -> dict[str, Any]:
         entries = []
+        # A document can contain the same reference more than once.  Keep one
+        # canonical entry for each DOI so two references in the same import do
+        # not result in two Zotero items before either has been written.
+        planned_dois: dict[str, str] = {}
         for reference in references:
             match = None
             reason = None
-            for item in self._candidates(library, reference):
-                if reference.doi and _normalized_doi(item.get("DOI", "")) == _normalized_doi(
-                    reference.doi
-                ):
-                    match, reason = item, "doi"
-                    break
-                if reference.title and _normalized(item.get("title", "")) == _normalized(reference.title):
-                    match, reason = item, "title"
-                    break
+            duplicate_of = None
+            doi = _normalized_doi(reference.doi) if reference.doi else ""
+            if doi and doi in planned_dois:
+                duplicate_of, reason = planned_dois[doi], "doi"
+            else:
+                for item in self._candidates(library, reference):
+                    if doi and _normalized_doi(item.get("DOI", "")) == doi:
+                        match, reason = item, "doi"
+                        break
+                    if reference.title and _normalized(item.get("title", "")) == _normalized(reference.title):
+                        match, reason = item, "title"
+                        break
+            if doi:
+                planned_dois.setdefault(doi, reference.id)
             entries.append(
                 {
                     "reference_id": reference.id,
                     "title": reference.title or reference.raw,
-                    "action": "reuse" if match else "create",
+                    "action": "reuse" if match or duplicate_of else "create",
                     "reason": reason,
                     "item_key": match.get("key") if match else None,
+                    "duplicate_of": duplicate_of,
                 }
             )
         digest = hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
@@ -228,13 +238,22 @@ class ZoteroClient:
     def _collection(self, library: Library, name: str | None) -> tuple[str | None, bool, int | None]:
         if not name:
             return None, False, None
-        collections = self._request(
-            "GET", f"{library.prefix}/collections", params={"limit": 100, "format": "json"}
-        ).json()
-        for wrapped in collections:
-            data = wrapped.get("data", wrapped)
-            if data.get("name", "").casefold() == name.casefold():
-                return data.get("key"), False, data.get("version")
+        # Zotero paginates collections.  Searching every page avoids creating a
+        # same-named collection when the existing one is beyond the first 100.
+        start = 0
+        while True:
+            collections = self._request(
+                "GET",
+                f"{library.prefix}/collections",
+                params={"limit": 100, "start": start, "format": "json"},
+            ).json()
+            for wrapped in collections:
+                data = wrapped.get("data", wrapped)
+                if data.get("name", "").strip().casefold() == name.strip().casefold():
+                    return data.get("key"), False, data.get("version")
+            if len(collections) < 100:
+                break
+            start += len(collections)
         response = self._request(
             "POST",
             f"{library.prefix}/collections",
@@ -249,6 +268,19 @@ class ZoteroClient:
             raise ZoteroError("Zotero did not return a key for the new collection.")
         version = int(response.headers.get("Last-Modified-Version", "0")) or None
         return key, True, version
+
+    def _add_items_to_collection(
+        self, library: Library, collection_key: str | None, item_keys: list[str]
+    ) -> None:
+        if not collection_key or not item_keys:
+            return
+        for offset in range(0, len(item_keys), 50):
+            self._request(
+                "POST",
+                f"{library.prefix}/collections/{collection_key}/items",
+                headers={"Zotero-Write-Token": uuid.uuid4().hex},
+                json=item_keys[offset : offset + 50],
+            )
 
     def execute(
         self,
@@ -304,7 +336,14 @@ class ZoteroClient:
             }
         if unverified_doi_action == "exclude":
             creates = [entry for entry in creates if entry["reference_id"] not in unresolved_ids]
-        if creates:
+        # A requested collection applies to reused records too.  Create/reuse it
+        # whenever at least one reference will be linked, not only for new items.
+        active_entries = [
+            entry
+            for entry in plan["entries"]
+            if not (entry["action"] == "create" and entry["reference_id"] in unresolved_ids and unverified_doi_action == "exclude")
+        ]
+        if active_entries:
             collection_key, collection_created, collection_version = self._collection(
                 library, collection_name
             )
@@ -314,7 +353,7 @@ class ZoteroClient:
         created_keys: list[str] = []
         created_version: int | None = None
         for entry in plan["entries"]:
-            if entry["action"] == "reuse":
+            if entry["action"] == "reuse" and entry.get("item_key"):
                 key = entry["item_key"]
                 links[entry["reference_id"]] = {"key": key, "uri": library.item_uri(key)}
         try:
@@ -344,6 +383,22 @@ class ZoteroClient:
                 created_version = int(response.headers.get("Last-Modified-Version", "0")) or created_version
                 if failed or len(successful) != len(batch):
                     raise ZoteroError(f"Zotero failed to create {len(failed) or 1} item(s).")
+            # Resolve duplicate document references after their canonical item
+            # has been created or reused in this execution.
+            for entry in plan["entries"]:
+                duplicate_of = entry.get("duplicate_of")
+                if duplicate_of and entry["reference_id"] not in links and duplicate_of in links:
+                    links[entry["reference_id"]] = links[duplicate_of]
+
+            # New items receive the collection in their create payload.  Add
+            # reused items explicitly so an existing library record is also
+            # present in the requested collection.
+            reused_keys = [
+                entry["item_key"]
+                for entry in plan["entries"]
+                if entry["action"] == "reuse" and entry.get("item_key")
+            ]
+            self._add_items_to_collection(library, collection_key, reused_keys)
         except Exception as exc:
             rollback = self._rollback(
                 library,
@@ -359,7 +414,7 @@ class ZoteroClient:
             "library": {"type": library.type, "id": library.id, "name": library.name},
             "collection": {"name": collection_name, "key": collection_key, "created": collection_created},
             "created": created_keys,
-            "reused": [entry["item_key"] for entry in plan["entries"] if entry["action"] == "reuse"],
+            "reused": [entry["item_key"] for entry in plan["entries"] if entry["action"] == "reuse" and entry.get("item_key")],
             "crossref": {
                 "verified_dois": verified_dois,
                 "doi_resolved_dois": resolver_verified_dois,

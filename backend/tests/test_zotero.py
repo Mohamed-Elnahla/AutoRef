@@ -39,6 +39,24 @@ def test_plan_reuses_exact_doi_match():
     assert plan["entries"][0]["item_key"] == "ABCD2345"
 
 
+def test_plan_deduplicates_repeated_document_dois_before_writing():
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json=[])
+
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    duplicate = Reference(id="ref-2", raw="Same paper", title="Another title", doi="DOI: 10.1000/TEST")
+    plan = client.plan(Library("user", 7, "Mine"), [_reference(), duplicate])
+    client.close()
+
+    assert calls == 1
+    assert [entry["action"] for entry in plan["entries"]] == ["create", "reuse"]
+    assert plan["entries"][1]["duplicate_of"] == "ref-1"
+
+
 def test_plan_retries_rate_limited_request_after_retry_after(monkeypatch):
     calls = 0
     waits: list[float] = []
@@ -108,6 +126,53 @@ def test_execute_creates_item_and_returns_canonical_uri():
         "uri": "http://zotero.org/users/7/items/WXYZ6789",
     }
     assert audit["created"] == ["WXYZ6789"]
+
+
+def test_execute_creates_collection_and_adds_reused_item_to_it():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET" and request.url.path.endswith("/collections"):
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and request.url.path.endswith("/collections"):
+            return httpx.Response(
+                200,
+                headers={"Last-Modified-Version": "9"},
+                json={"successful": {"0": {"key": "COLLECT1"}}},
+            )
+        if request.method == "POST" and request.url.path.endswith("/collections/COLLECT1/items"):
+            assert json.loads(request.content) == ["EXISTING"]
+            return httpx.Response(200, json={})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    reference = _reference()
+    plan = {"entries": [{"reference_id": reference.id, "action": "reuse", "item_key": "EXISTING"}]}
+    links, audit = client.execute(Library("user", 7, "Mine"), [reference], plan, "  AutoRef imports  ")
+    client.close()
+
+    assert links[reference.id]["key"] == "EXISTING"
+    assert audit["collection"] == {"name": "  AutoRef imports  ", "key": "COLLECT1", "created": True}
+    assert [request.method for request in requests] == ["GET", "POST", "POST"]
+
+
+def test_collection_reuse_searches_past_first_page_without_creating_duplicate():
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        start = int(request.url.params.get("start", "0"))
+        if start == 0:
+            return httpx.Response(200, json=[{"data": {"name": f"Collection {i}", "key": str(i)}} for i in range(100)])
+        return httpx.Response(200, json=[{"data": {"name": "AutoRef imports", "key": "COLLECT1", "version": 4}}])
+
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    key, created, version = client._collection(Library("user", 7, "Mine"), "autoref imports")
+    client.close()
+
+    assert (key, created, version) == ("COLLECT1", False, 4)
+    assert [request.url.params["start"] for request in calls] == ["0", "100"]
 
 
 def test_execute_verifies_and_downloads_crossref_metadata_before_zotero_write():
