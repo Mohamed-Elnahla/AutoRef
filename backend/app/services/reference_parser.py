@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Iterable
+from urllib.parse import unquote, urlsplit
 
 from backend.app.models import Reference
 
@@ -34,10 +35,41 @@ def extract_doi(value: str) -> str:
     This is also used just before network verification, so a DOI missed or
     partially captured during initial parsing gets one last recovery attempt.
     """
-    match = DOI_RE.search(value)
+    # Resolver links often carry a percent-encoded slash (particularly when a
+    # DOI is passed through a redirect or query parameter).  Decode URL tokens
+    # before applying the normal DOI matcher.  Looking at doi.org paths first
+    # also avoids accidentally retaining tracking query parameters as DOI text.
+    for url in URL_RE.findall(value):
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            continue
+        host = (parsed.hostname or "").lower()
+        if host in {"doi.org", "www.doi.org", "dx.doi.org"}:
+            candidate = _percent_decode(parsed.path.lstrip("/"))
+            match = DOI_RE.search(candidate)
+            if match:
+                return _clean_doi(match.group(1))
+
+    match = DOI_RE.search(_percent_decode(value))
     if not match:
         return ""
-    doi = match.group(1).rstrip(".,;:!?”’]}>")
+    return _clean_doi(match.group(1))
+
+
+def _percent_decode(value: str) -> str:
+    """Decode nested URL encoding without letting malformed escapes fail parsing."""
+    for _ in range(2):
+        decoded = unquote(value)
+        if decoded == value:
+            break
+        value = decoded
+    return value
+
+
+def _clean_doi(doi: str) -> str:
+    """Remove reference punctuation that is not part of a DOI suffix."""
+    doi = doi.rstrip(".,;:!?”’]}>")
     # A closing parenthesis is valid in a DOI only when it closes an opening one.
     while doi.endswith(")") and doi.count(")") > doi.count("("):
         doi = doi[:-1]

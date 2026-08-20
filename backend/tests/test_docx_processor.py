@@ -9,14 +9,14 @@ from backend.app.services.docx_processor import NS, analyze_docx, convert_docx, 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
-def _fixture(body: str | None = None) -> bytes:
+def _fixture(body: str | None = None, relationships: bytes | None = None) -> bytes:
     body = body or """
       <w:p><w:r><w:t>Smith (2024) supports this.</w:t></w:r></w:p>
       <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>References</w:t></w:r></w:p>
       <w:p><w:r><w:t>Smith, J. (2024). First paper. Journal, 1(1), 1-2. https://doi.org/10.1000/test</w:t></w:r></w:p>
     """
     document = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <w:document xmlns:w="{W}"><w:body>
+    <w:document xmlns:w="{W}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>
       {body}
       <w:sectPr/>
     </w:body></w:document>'''.encode()
@@ -26,6 +26,8 @@ def _fixture(body: str | None = None) -> bytes:
         archive.writestr("[Content_Types].xml", content_types)
         archive.writestr("_rels/.rels", b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')
         archive.writestr("word/document.xml", document)
+        if relationships:
+            archive.writestr("word/_rels/document.xml.rels", relationships)
         archive.writestr("word/media/unchanged.bin", b"preserve-me")
     return buffer.getvalue()
 
@@ -52,6 +54,20 @@ def test_analyze_and_convert_preserves_unrelated_parts():
         assert visible == "Smith (2024) supports this."
     assert report["converted_bibliography"] is True
     assert report["bibliography_entries"] == 1
+
+
+def test_analyze_extracts_doi_from_reference_hyperlink_target():
+    source = _fixture(
+        """
+        <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>References</w:t></w:r></w:p>
+        <w:p><w:r><w:t>Smith, J. (2024). First paper. Journal, 1(1), 1-2. </w:t></w:r><w:hyperlink r:id="doi-link"><w:r><w:t>Read online</w:t></w:r></w:hyperlink></w:p>
+        """,
+        b'''<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="doi-link" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://doi.org/10.1000%2Fhyperlinked-doi" TargetMode="External"/></Relationships>''',
+    )
+
+    analysis = analyze_docx(source, "paper.docx")
+
+    assert analysis.references[0].doi == "10.1000/hyperlinked-doi"
 
 
 def test_linked_conversion_uses_real_zotero_key_and_uri():

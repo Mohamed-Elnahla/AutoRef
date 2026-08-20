@@ -1,4 +1,4 @@
-from backend.app.services.reference_parser import parse_reference
+from backend.app.services.reference_parser import extract_doi, parse_reference
 
 
 def test_parse_apa_reference():
@@ -26,3 +26,13 @@ def test_parse_reference_recovers_doi_label_and_trailing_bibliography_punctuatio
     )
 
     assert ref.doi == "10.48550/arXiv.2312.10997"
+
+
+def test_extract_doi_recovers_percent_encoded_doi_org_url_without_tracking_query():
+    assert extract_doi("https://doi.org/10.1016%2Fj.buildenv.2024.111111?utm_source=reference") == (
+        "10.1016/j.buildenv.2024.111111"
+    )
+
+
+def test_extract_doi_recovers_percent_encoded_doi_in_a_publisher_url_query():
+    assert extract_doi("https://example.test/article?doi=10.1000%252Fencoded-suffix") == "10.1000/encoded-suffix"

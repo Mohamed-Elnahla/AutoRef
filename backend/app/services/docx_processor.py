@@ -16,8 +16,10 @@ from backend.app.services.citation_detector import detect_citations, detect_styl
 from backend.app.services.reference_parser import parse_references
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 XML_NS = "http://www.w3.org/XML/1998/namespace"
-NS = {"w": W_NS}
+NS = {"w": W_NS, "r": R_NS}
 
 
 def qn(name: str) -> str:
@@ -69,7 +71,35 @@ def _paragraph_style(paragraph: etree._Element) -> str:
     return values[0] if values else ""
 
 
-def _find_reference_range(paragraphs: list[etree._Element]) -> tuple[int | None, list[str]]:
+def _hyperlink_targets(archive: zipfile.ZipFile) -> dict[str, str]:
+    """Return external hyperlink destinations from the main document part."""
+    try:
+        root = etree.fromstring(archive.read("word/_rels/document.xml.rels"))
+    except KeyError:
+        return {}
+    return {
+        relationship.get("Id", ""): relationship.get("Target", "")
+        for relationship in root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
+        if relationship.get("Type", "").endswith("/hyperlink")
+        and relationship.get("TargetMode") == "External"
+        and relationship.get("Target")
+    }
+
+
+def _reference_paragraph_text(paragraph: etree._Element, hyperlink_targets: dict[str, str]) -> str:
+    """Include hyperlink destinations, whose URL is often absent from visible text."""
+    targets = [
+        hyperlink_targets[relationship_id]
+        for relationship_id in paragraph.xpath(".//w:hyperlink/@r:id", namespaces=NS)
+        if relationship_id in hyperlink_targets
+    ]
+    return " ".join([paragraph_text(paragraph), *targets])
+
+
+def _find_reference_range(
+    paragraphs: list[etree._Element], hyperlink_targets: dict[str, str] | None = None
+) -> tuple[int | None, list[str]]:
+    hyperlink_targets = hyperlink_targets or {}
     heading_index: int | None = None
     for index, paragraph in enumerate(paragraphs):
         text = re.sub(r"\s+", " ", paragraph_text(paragraph)).strip().rstrip(":").casefold()
@@ -81,7 +111,7 @@ def _find_reference_range(paragraphs: list[etree._Element]) -> tuple[int | None,
 
     references: list[str] = []
     for paragraph in paragraphs[heading_index + 1 :]:
-        text = re.sub(r"\s+", " ", paragraph_text(paragraph)).strip()
+        text = re.sub(r"\s+", " ", _reference_paragraph_text(paragraph, hyperlink_targets)).strip()
         if not text:
             continue
         style = _paragraph_style(paragraph).casefold()
@@ -95,9 +125,10 @@ def analyze_docx(data: bytes, source_name: str) -> Analysis:
     validate_docx(data)
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         root = etree.fromstring(archive.read("word/document.xml"))
+        hyperlink_targets = _hyperlink_targets(archive)
     paragraphs = root.xpath(".//w:p", namespaces=NS)
     texts = [paragraph_text(item) for item in paragraphs]
-    reference_start, raw_references = _find_reference_range(paragraphs)
+    reference_start, raw_references = _find_reference_range(paragraphs, hyperlink_targets)
     references = parse_references(raw_references)
     citations = detect_citations(texts, references, reference_start)
     warnings: list[str] = []
