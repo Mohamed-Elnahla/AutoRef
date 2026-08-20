@@ -145,6 +145,32 @@ class ZoteroClient:
         )
         return [item.get("data", item) for item in response.json()]
 
+    def _find_doi(self, library: Library, doi: str) -> dict[str, Any] | None:
+        """Find an exact DOI even when Zotero's text search does not return it.
+
+        Zotero's ``q`` endpoint is a relevance-ranked full-text search.  It is
+        useful for titles, but it is not an exact identifier lookup and can
+        omit a DOI match from its first page.  Fall back to checking the
+        library's top-level items page by page before deciding to create a
+        record.  This deliberately favours a little extra read traffic over
+        creating a duplicate bibliographic item.
+        """
+        start = 0
+        page_size = 100
+        while True:
+            response = self._request(
+                "GET",
+                f"{library.prefix}/items/top",
+                params={"start": start, "limit": page_size, "format": "json"},
+            )
+            items = [item.get("data", item) for item in response.json()]
+            for item in items:
+                if _normalized_doi(item.get("DOI", "")) == doi:
+                    return item
+            if len(items) < page_size:
+                return None
+            start += page_size
+
     def plan(self, library: Library, references: list[Reference]) -> dict[str, Any]:
         entries = []
         # A document can contain the same reference more than once.  Keep one
@@ -166,6 +192,12 @@ class ZoteroClient:
                     if reference.title and _normalized(item.get("title", "")) == _normalized(reference.title):
                         match, reason = item, "title"
                         break
+                # A full-text query is not a reliable identifier lookup.  Do
+                # an exact DOI pass before marking this reference for create.
+                if doi and not match:
+                    match = self._find_doi(library, doi)
+                    if match:
+                        reason = "doi"
             if doi:
                 planned_dois.setdefault(doi, reference.id)
             entries.append(
@@ -305,7 +337,20 @@ class ZoteroClient:
         unverified_doi_action: Literal["review", "use_parsed", "mark_for_review", "exclude"] = "review",
     ) -> tuple[dict[str, dict[str, str]], dict[str, Any]]:
         by_id = {reference.id: reference for reference in references}
-        creates = [entry for entry in plan["entries"] if entry["action"] == "create"]
+        # The preview can be minutes old by the time it is confirmed.  Check
+        # each proposed DOI create one final time immediately before any write
+        # so rerunning a file (or another importer writing concurrently) reuses
+        # the record that is now in Zotero.
+        entries = [dict(entry) for entry in plan["entries"]]
+        for entry in entries:
+            if entry["action"] != "create":
+                continue
+            reference = by_id[entry["reference_id"]]
+            doi = _normalized_doi(reference.doi) if reference.doi else ""
+            if doi and (match := self._find_doi(library, doi)):
+                entry.update(action="reuse", reason="doi", item_key=match.get("key"))
+        plan = {**plan, "entries": entries}
+        creates = [entry for entry in entries if entry["action"] == "create"]
         verified_dois: list[str] = []
         resolver_verified_dois: list[str] = []
         unresolved: list[dict[str, str]] = []

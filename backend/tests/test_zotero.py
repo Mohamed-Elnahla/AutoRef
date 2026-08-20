@@ -52,9 +52,34 @@ def test_plan_deduplicates_repeated_document_dois_before_writing():
     plan = client.plan(Library("user", 7, "Mine"), [_reference(), duplicate])
     client.close()
 
-    assert calls == 1
+    # The first DOI has no general-search result, so the exact DOI fallback
+    # checks the library once before the second document reference reuses it.
+    assert calls == 2
     assert [entry["action"] for entry in plan["entries"]] == ["create", "reuse"]
     assert plan["entries"][1]["duplicate_of"] == "ref-1"
+
+
+def test_plan_reuses_doi_found_outside_zotero_text_search_results():
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if "q" in request.url.params:
+            # Zotero's relevance-ranked text query missed the matching record.
+            return httpx.Response(200, json=[])
+        return httpx.Response(
+            200,
+            json=[{"data": {"key": "EXACTDOI", "DOI": "doi:10.1000/TEST"}}],
+        )
+
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    plan = client.plan(Library("user", 7, "Mine"), [_reference()])
+    client.close()
+
+    assert plan["entries"][0]["action"] == "reuse"
+    assert plan["entries"][0]["reason"] == "doi"
+    assert plan["entries"][0]["item_key"] == "EXACTDOI"
+    assert len(calls) == 2
 
 
 def test_plan_retries_rate_limited_request_after_retry_after(monkeypatch):
@@ -74,7 +99,8 @@ def test_plan_retries_rate_limited_request_after_retry_after(monkeypatch):
     client.close()
 
     assert plan["entries"][0]["action"] == "create"
-    assert calls == 2
+    # One retry for the text lookup, then one exact DOI fallback lookup.
+    assert calls == 3
     assert waits and waits[0] > 0
 
 
@@ -82,7 +108,7 @@ def test_backoff_header_delays_next_request(monkeypatch):
     waits: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.params["q"] == "10.1000/test":
+        if request.url.params.get("q") == "10.1000/test":
             return httpx.Response(200, headers={"Backoff": "2"}, json=[])
         return httpx.Response(200, json=[])
 
@@ -102,6 +128,8 @@ def test_execute_creates_item_and_returns_canonical_uri():
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.method == "GET" and request.url.path.endswith("/items/top"):
+            return httpx.Response(200, json=[])
         if request.url.path.endswith("/items") and request.method == "POST":
             payload = json.loads(request.content)
             assert payload[0]["itemType"] == "journalArticle"
@@ -126,6 +154,25 @@ def test_execute_creates_item_and_returns_canonical_uri():
         "uri": "http://zotero.org/users/7/items/WXYZ6789",
     }
     assert audit["created"] == ["WXYZ6789"]
+
+
+def test_execute_reuses_doi_created_after_the_preview():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path.endswith("/items/top")
+        return httpx.Response(200, json=[{"data": {"key": "JUSTADDED", "DOI": "10.1000/test"}}])
+
+    client = ZoteroClient("not-a-real-key", transport=httpx.MockTransport(handler))
+    reference = _reference()
+    links, audit = client.execute(
+        Library("user", 7, "Mine"), [reference],
+        {"entries": [{"reference_id": reference.id, "action": "create", "item_key": None}]}, None,
+    )
+    client.close()
+
+    assert links[reference.id]["key"] == "JUSTADDED"
+    assert audit["created"] == []
+    assert audit["reused"] == ["JUSTADDED"]
 
 
 def test_execute_creates_collection_and_adds_reused_item_to_it():
@@ -219,6 +266,9 @@ def test_execute_verifies_and_downloads_crossref_metadata_before_zotero_write():
         )
 
     def zotero_handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            order.append("zotero-check")
+            return httpx.Response(200, json=[])
         order.append("zotero")
         payload = json.loads(request.content)
         assert payload[0]["title"] == "Title downloaded from Crossref"
@@ -234,7 +284,7 @@ def test_execute_verifies_and_downloads_crossref_metadata_before_zotero_write():
     client.close()
     crossref.close()
 
-    assert order == ["crossref", "zotero"]
+    assert order == ["zotero-check", "crossref", "zotero"]
     assert audit["crossref"]["verified_dois"] == ["10.1000/test"]
 
 
@@ -246,7 +296,7 @@ def test_crossref_failure_happens_before_any_zotero_write():
     client = ZoteroClient(
         "not-a-real-key",
         transport=httpx.MockTransport(
-            lambda request: zotero_requests.append(request) or httpx.Response(500)
+            lambda request: zotero_requests.append(request) or httpx.Response(200, json=[])
         ),
     )
     reference = _reference()
@@ -256,7 +306,7 @@ def test_crossref_failure_happens_before_any_zotero_write():
         client.execute(Library("user", 7, "Mine"), [reference], plan, "New collection", crossref)
     client.close()
     crossref.close()
-    assert zotero_requests == []
+    assert [request.method for request in zotero_requests] == ["GET"]
 
 
 def test_doi_org_resolution_keeps_parsed_metadata_when_crossref_has_no_record():
@@ -269,6 +319,8 @@ def test_doi_org_resolution_keeps_parsed_metadata_when_crossref_has_no_record():
 
     def zotero_handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
         payload = json.loads(request.content)
         assert payload[0]["title"] == "First paper"
         assert payload[0]["DOI"] == "10.1000/test"
@@ -282,7 +334,7 @@ def test_doi_org_resolution_keeps_parsed_metadata_when_crossref_has_no_record():
     client.close()
     crossref.close()
 
-    assert len(requests) == 1
+    assert [request.method for request in requests] == ["GET", "POST"]
     assert audit["crossref"]["verified_dois"] == []
     assert audit["crossref"]["doi_resolved_dois"] == ["10.1000/test"]
 
@@ -292,6 +344,8 @@ def test_partial_failure_attempts_compensating_delete():
 
     def handler(request: httpx.Request) -> httpx.Response:
         methods.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
         if request.method == "POST":
             return httpx.Response(
                 200,
@@ -318,4 +372,4 @@ def test_partial_failure_attempts_compensating_delete():
     with pytest.raises(ZoteroError, match="rollback: completed"):
         client.execute(Library("user", 7, "Mine"), references, plan, None)
     client.close()
-    assert methods == ["POST", "DELETE"]
+    assert methods == ["GET", "POST", "DELETE"]
