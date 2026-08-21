@@ -1,16 +1,17 @@
 {
   "name": "autoref",
-  "version": "0.3.0+codex.20260821073707",
+  "version": "0.3.0+codex.20260821082706",
   "description": "Convert DOCX citations into Zotero fields and figure/table mentions into Word cross-references.",
   "author": {
-    "name": "AutoRef contributors"
+    "name": "Eng. Mohamed Elnahla",
+    "url": "https://www.linkedin.com/in/mohamed-el-nahla"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "AutoRef",
     "shortDescription": "Convert DOCX citations and cross-references.",
     "longDescription": "Analyze research papers, convert safe citation matches to native Zotero Word fields, create native Word cross-references for figure/table mentions, export CSL-JSON, and optionally create linked Zotero items after review.",
-    "developerName": "AutoRef contributors",
+    "developerName": "Eng. Mohamed Elnahla",
     "category": "Productivity",
     "capabilities": [
       "Documents",

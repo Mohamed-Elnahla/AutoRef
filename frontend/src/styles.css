@@ -44,7 +44,11 @@ a { color: inherit; text-decoration: none; }
 .nav { height: 78px; display: flex; align-items: center; justify-content: space-between; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.02em; }
 .brand-mark { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: white; background: var(--brand-strong); }
-.nav-actions { display: flex; gap: 8px; }
+.nav-actions { display: flex; align-items: center; gap: 8px; }
+.social-button { border: 1px solid var(--line); color: var(--muted); background: var(--surface); width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; transition: .15s ease; }
+.social-button svg { width: 18px; height: 18px; }
+.social-button:hover { color: var(--brand); border-color: var(--brand); transform: translateY(-1px); }
+.footer-links a:hover { color: var(--brand); }
 .icon-button { border: 1px solid var(--line); color: var(--text); background: var(--surface); width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; cursor: pointer; }
 .icon-button:hover { border-color: var(--brand); color: var(--brand); }
 
@@ -132,7 +136,8 @@ a { color: inherit; text-decoration: none; }
 .how span { color: var(--brand); font: italic 20px Georgia, "Times New Roman", serif; }
 .how h2 { font: 400 28px Georgia, "Times New Roman", serif; margin: 0; }
 .how p { grid-column: 2; color: var(--muted); font-size: 13px; line-height: 1.65; margin: 8px 0 0; }
-footer { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding: 24px 0 34px; color: var(--muted); font-size: 12px; }
+footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--line); padding: 24px 0 34px; color: var(--muted); font-size: 12px; }
+.footer-links { display: inline-flex; align-items: center; gap: 14px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 

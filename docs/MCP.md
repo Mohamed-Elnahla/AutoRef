@@ -1,6 +1,6 @@
 # MCP server and Codex plugin
 
-AutoRef includes an MCP server for AI clients and a repository-local Codex plugin. The MCP surface mirrors the backend's analysis, local conversion—including figure/table caption detection and native Word cross-reference creation—artifact retrieval, Zotero connection, import preview, confirmed import, and disconnect operations.
+AutoRef includes an MCP server for AI clients and a repository-local Codex plugin. Developed by [Eng. Mohamed Elnahla](https://www.linkedin.com/in/mohamed-el-nahla), the MCP surface mirrors the backend's analysis, local conversion—including figure/table caption detection and native Word cross-reference creation—artifact retrieval, Zotero connection, import preview, confirmed import, and disconnect operations.
 
 ## Install and run
 

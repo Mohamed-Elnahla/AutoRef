@@ -66,6 +66,14 @@ const apiError = async (response: Response) => {
   return body.detail || `Request failed (${response.status})`;
 };
 
+function GitHubIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.167 6.839 9.49.5.092.683-.217.683-.483 0-.237-.009-1.025-.013-1.859-2.782.604-3.369-1.18-3.369-1.18-.455-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.004.07 1.532 1.03 1.532 1.03.892 1.529 2.341 1.087 2.91.831.091-.646.349-1.087.635-1.337-2.22-.253-4.555-1.11-4.555-4.942 0-1.092.39-1.985 1.029-2.685-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.026A9.56 9.56 0 0 1 12 6.756a9.56 9.56 0 0 1 2.504.337c1.909-1.295 2.748-1.026 2.748-1.026.545 1.377.202 2.394.1 2.647.64.7 1.028 1.593 1.028 2.685 0 3.842-2.339 4.686-4.566 4.934.359.31.679.919.679 1.852 0 1.338-.012 2.417-.012 2.747 0 .268.18.58.688.482A10.003 10.003 0 0 0 22 12c0-5.523-4.477-10-10-10Z" /></svg>;
+}
+
+function LinkedInIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.34V8.99h3.42v1.57h.05c.48-.9 1.64-1.85 3.37-1.85 3.61 0 4.27 2.37 4.27 5.46v6.28ZM5.32 7.42a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14Zm1.78 13.03H3.54V8.99H7.1v11.46Z" /></svg>;
+}
+
 function App() {
   const [theme, setTheme] = useState<"light" | "dark">(
     () => (localStorage.getItem("autoref-theme") as "light" | "dark") || "light",
@@ -226,6 +234,12 @@ function App() {
           <span>AutoRef</span>
         </a>
         <div className="nav-actions">
+          <a className="social-button" href="https://www.linkedin.com/in/mohamed-el-nahla" target="_blank" rel="noreferrer" aria-label="Eng. Mohamed Elnahla on LinkedIn" title="Eng. Mohamed Elnahla on LinkedIn">
+            <LinkedInIcon />
+          </a>
+          <a className="social-button" href="https://github.com/Mohamed-Elnahla/AutoRef" target="_blank" rel="noreferrer" aria-label="AutoRef on GitHub" title="AutoRef on GitHub">
+            <GitHubIcon />
+          </a>
           <button
             className="icon-button"
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
@@ -238,7 +252,7 @@ function App() {
 
       <main id="top">
         <section className="hero">
-          <div className="eyebrow"><span /> Private by design · Open source</div>
+          <div className="eyebrow"><span /> Private by design · Source available</div>
           <h1>Turn static citations<br />into <em>living references.</em></h1>
           <p className="hero-copy">
             Upload a Word paper. AutoRef finds the bibliography, links citation callouts,
@@ -396,7 +410,15 @@ function App() {
         </section>
       </main>
 
-      <footer><span>AutoRef · Phase two</span><span>Your files expire automatically after 24 hours.</span></footer>
+      <footer>
+        <span>AutoRef · Developed by Eng. Mohamed Elnahla</span>
+        <span className="footer-links">
+          <a href="https://www.linkedin.com/in/mohamed-el-nahla" target="_blank" rel="noreferrer">LinkedIn</a>
+          <a href="https://github.com/Mohamed-Elnahla/AutoRef" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://github.com/Mohamed-Elnahla/AutoRef/blob/main/LICENSE" target="_blank" rel="noreferrer">License</a>
+        </span>
+        <span>Your files expire automatically after 24 hours.</span>
+      </footer>
     </div>
   );
 }
