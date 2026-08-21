@@ -8,11 +8,11 @@ Returns service status and version.
 
 Multipart field: `file`, a DOCX up to `AUTOREF_MAX_UPLOAD_BYTES` (30 MB by default).
 
-Returns `201` with a job ID, detected style, parsed references, citation candidates, warnings, and summary counts. Analysis does not alter the source.
+Returns `201` with a job ID, detected style, parsed references, citation candidates, detected figure/table captions, matching in-text cross-references, warnings, and summary counts. Analysis does not alter the source.
 
 ## `POST /api/v1/documents/{job_id}/convert`
 
-Re-analyzes the stored source, converts only candidates with an unambiguous reference match, and wraps the detected reference-list body in a refreshable Zotero bibliography field. Returns artifact URLs plus converted/skipped counts and bibliography conversion status.
+Re-analyzes the stored source, converts only candidates with an unambiguous reference match, bookmarks detected figure/table caption numbers, turns matching in-text numbers into native Word `REF` fields, and wraps the detected reference-list body in a refreshable Zotero bibliography field. The original label spelling and text styling are retained. Returns artifact URLs plus converted/skipped counts and bibliography conversion status.
 
 This local endpoint does not call Zotero and its fields are not linked to library objects.
 
@@ -57,7 +57,7 @@ On success, the endpoint creates/reuses Zotero items, generates a linked DOCX, a
 - `415`: filename is not `.docx`
 - `422`: invalid/incomplete DOCX package, or an unresolved-DOI review response (before any Zotero write)
 - `404`: missing/expired job or artifact
-- `409`: conversion cannot run because no reference list was detected
+- `409`: conversion cannot run because neither a reference list nor convertible figure/table cross-references were detected
 - `409`: Zotero import options no longer match the reviewed preview
 - `401`: encrypted Zotero connection expired
 - `403`: key lacks write access to the selected library

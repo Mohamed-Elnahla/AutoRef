@@ -1,21 +1,25 @@
 {
   "name": "autoref",
-  "version": "0.3.0",
-  "description": "Convert ordinary DOCX citations into Zotero Word fields and importable reference libraries.",
+  "version": "0.3.0+codex.20260821073707",
+  "description": "Convert DOCX citations into Zotero fields and figure/table mentions into Word cross-references.",
   "author": {
     "name": "AutoRef contributors"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "AutoRef",
-    "shortDescription": "Convert research DOCX files for Zotero.",
-    "longDescription": "Analyze research papers, convert safe citation matches to native Zotero Word fields, export CSL-JSON, and optionally create linked Zotero items after review.",
+    "shortDescription": "Convert DOCX citations and cross-references.",
+    "longDescription": "Analyze research papers, convert safe citation matches to native Zotero Word fields, create native Word cross-references for figure/table mentions, export CSL-JSON, and optionally create linked Zotero items after review.",
     "developerName": "AutoRef contributors",
     "category": "Productivity",
-    "capabilities": ["Documents", "Interactive", "Write"],
+    "capabilities": [
+      "Documents",
+      "Interactive",
+      "Write"
+    ],
     "defaultPrompt": [
       "Convert my DOCX citations for Zotero.",
-      "Analyze this paper's citation match quality.",
+      "Create Word cross-references for figures and tables in my DOCX.",
       "Preview a linked Zotero library import."
     ]
   },

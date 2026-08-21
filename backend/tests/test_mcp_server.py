@@ -1,10 +1,14 @@
 import base64
+import io
 import json
+import zipfile
 
 import pytest
+from lxml import etree
 from mcp import Client
 
 from backend.app import mcp_server
+from backend.app.services.docx_processor import NS
 from backend.app.services.job_store import JobStore
 from backend.tests.test_docx_processor import _fixture
 
@@ -68,3 +72,46 @@ async def test_mcp_rejects_unconfirmed_zotero_write():
         )
     assert result.is_error
     assert "Explicit confirmation is required" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_mcp_reports_and_converts_figure_cross_references_without_bibliography(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(mcp_server, "store", JobStore(tmp_path / "jobs"))
+    source = _fixture(
+        """
+        <w:p><w:r><w:t>See Fig. 3 for the workflow.</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="Caption"/></w:pPr><w:r><w:t>Figure 3. Workflow.</w:t></w:r></w:p>
+        """
+    )
+
+    async with Client(mcp_server.mcp) as client:
+        health_result = _payload(await client.call_tool("health", {}))
+        assert "figure/table caption detection" in health_result["features"]
+
+        result = await client.call_tool(
+            "convert_docx_to_zotero",
+            {
+                "document_base64": base64.b64encode(source).decode("ascii"),
+                "filename": "figures.docx",
+            },
+        )
+        assert not result.is_error
+        converted = _payload(result)
+        assert converted["analysis"]["summary"]["captions"] == 1
+        assert converted["analysis"]["summary"]["cross_references"] == 1
+        assert converted["report"]["converted_cross_references"] == 1
+
+        document = _payload(
+            await client.call_tool(
+                "read_artifact",
+                {"job_id": converted["job_id"], "name": "document"},
+            )
+        )
+
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(document["data_base64"]))) as archive:
+        root = etree.fromstring(archive.read("word/document.xml"))
+    instructions = root.xpath(".//w:instrText[starts-with(., ' REF ')]/text()", namespaces=NS)
+    assert len(instructions) == 1
+    assert "\\h" in instructions[0]

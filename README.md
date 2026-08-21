@@ -10,6 +10,7 @@ This repository is a conservative working foundation, not a claim that arbitrary
 - reference-section detection for common headings
 - APA-like author-date citation matching, including narrative citations
 - bracketed numeric citation matching, including ranges
+- figure/table conversion to native Word `Caption` paragraphs using `SEQ Figure` / `SEQ Table` fields, with native `REF` fields for matching in-text mentions
 - self-contained `ADDIN ZOTERO_ITEM CSL_CITATION` complex Word fields
 - minimal OOXML patching: non-document package parts are copied byte-for-byte
 - Zotero-importable CSL-JSON and a machine-readable conversion report
@@ -21,6 +22,12 @@ This repository is a conservative working foundation, not a claim that arbitrary
 - responsive React UI with light/dark themes
 - MCP server for stdio or Streamable HTTP AI clients, covering the full backend workflow
 - downloadable Codex plugin and `$autoref-docx` skill in `plugins/autoref`
+
+## Figures and tables
+
+AutoRef recognizes a figure or table caption when it is styled as a caption, punctuated as one (for example, `Figure 2. Title`), or split into a standalone label and following title (`Figure 2` followed by `Title`). Conversion applies Word's `Caption` style, replaces the typed number with a live `SEQ Figure` or `SEQ Table` field, and bookmarks that field result. Existing in-text mentions become clickable `REF` fields to the caption number.
+
+Word owns future numbering. After adding, deleting, or moving a caption, use `Ctrl+A`, then `F9` in Word. Use **References → Insert Table of Figures** with the `Figure` or `Table` label to generate or update the List of Figures or List of Tables.
 
 ## Quick start
 
@@ -61,7 +68,7 @@ Use HTTPS outside localhost. AutoRef never puts API keys in URLs or application 
 
 Each successful conversion provides:
 
-1. `*-zotero.docx` — the source document with matched citation spans represented as Zotero Word fields.
+1. `*-zotero.docx` — the source document with matched citation spans represented as Zotero Word fields and figure/table mentions represented as Word cross-reference fields.
 2. `*-library.csl.json` — parsed references importable with Zotero's File → Import → A file flow.
 3. `*-conversion-report.json` — counts, warnings, metadata, and skipped candidates.
 

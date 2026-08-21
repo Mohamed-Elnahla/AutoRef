@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import json
 import os
 import re
 from pathlib import Path
@@ -32,9 +33,10 @@ mcp = MCPServer(
     "AutoRef",
     version="0.3.0",
     instructions=(
-        "Convert ordinary DOCX citations and reference lists into native Zotero Word fields. Analyze before "
-        "conversion, surface warnings, and never call import_to_zotero until the user has "
-        "reviewed a preview and explicitly confirmed the write."
+        "Convert ordinary DOCX citations and reference lists into native Zotero Word fields, "
+        "and convert matching figure/table mentions into native Word cross-reference fields. "
+        "Analyze before conversion, surface warnings, and never call import_to_zotero until "
+        "the user has reviewed a preview and explicitly confirmed the write."
     ),
 )
 
@@ -117,8 +119,10 @@ def _artifact_metadata(job_id: str, names: tuple[ArtifactName, ...]) -> dict:
 def _convert_job(job_id: str) -> dict:
     source, source_name = _job_source(job_id)
     analysis = analyze_docx_bytes(source, source_name)
-    if not analysis.references:
-        raise ValueError("No reference list was detected; conversion was not run.")
+    if not analysis.references and not analysis.cross_references:
+        raise ValueError(
+            "No reference list or convertible figure/table cross-references were detected."
+        )
     converted, report = convert_docx_bytes(source, analysis)
     stem = _safe_stem(source_name)
     directory = store.directory(job_id)
@@ -167,7 +171,16 @@ def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "version": "0.3.0",
-        "outputs": ["Zotero-field DOCX", "CSL-JSON Zotero import", "JSON audit report"],
+        "outputs": [
+            "Zotero and Word cross-reference field DOCX",
+            "CSL-JSON Zotero import",
+            "JSON audit report",
+        ],
+        "features": [
+            "bibliographic citation conversion",
+            "figure/table caption detection",
+            "figure/table in-text Word cross-references",
+        ],
     }
 
 
@@ -180,7 +193,8 @@ def analyze_document(
     """Analyze a DOCX without changing it and create an expiring job.
 
     Local clients should pass source_path. Remote clients can pass base64 plus filename.
-    Returns parsed references, citation matches, warnings, summary counts, and job_id.
+    Returns parsed references, citation matches, figure/table captions and cross-reference
+    matches, warnings, summary counts, and job_id.
     """
     data, source_name = _document_input(source_path, document_base64, filename)
     return _analyze_and_store(data, source_name)
@@ -188,10 +202,11 @@ def analyze_document(
 
 @mcp.tool(structured_output=True, annotations=ToolAnnotations(open_world_hint=False))
 def convert_document(job_id: str) -> dict[str, Any]:
-    """Convert citations and the reference list to Zotero fields; generate CSL-JSON and a report.
+    """Convert citations, bibliography, and figure/table mentions to native Word fields.
 
-    This credential-free conversion embeds reference metadata but cannot link fields to Zotero
-    library item keys. Use the preview/import tools for fully linked fields.
+    Figure/table mentions become clickable Word REF fields linked to bookmarked caption numbers.
+    Bibliographic fields embed metadata but cannot link to Zotero library item keys in this
+    credential-free mode. Use the preview/import tools for fully linked Zotero fields.
     """
     return _convert_job(job_id)
 
@@ -202,7 +217,7 @@ def convert_docx_to_zotero(
     document_base64: str | None = None,
     filename: str | None = None,
 ) -> dict[str, Any]:
-    """Analyze and locally convert a DOCX in one call, including a Zotero-importable CSL-JSON file."""
+    """Convert Zotero citations and figure/table Word cross-references in one local call."""
     data, source_name = _document_input(source_path, document_base64, filename)
     analysis = _analyze_and_store(data, source_name)
     result = _convert_job(analysis["job_id"])
@@ -422,9 +437,12 @@ def import_to_zotero(
 def capabilities() -> str:
     """Describe AutoRef's supported conversion workflow and safety boundary."""
     return (
-        "AutoRef analyzes DOCX files, converts unambiguous citation spans and the detected reference "
-        "list to native Zotero Word fields, exports CSL-JSON and audit reports, and can create/reuse Zotero records after a "
-        "separate preview and explicit confirmation. Ambiguous citations remain unchanged."
+        "AutoRef analyzes DOCX files; converts unambiguous citation spans and the detected "
+        "reference list to native Zotero Word fields; bookmarks detected figure/table caption "
+        "numbers; and converts matching in-text numbers to clickable Word REF fields while "
+        "preserving label wording and styling. It exports CSL-JSON and audit reports, and can "
+        "create/reuse Zotero records after a separate preview and explicit confirmation. "
+        "Ambiguous citations and duplicate caption-number references remain unchanged."
     )
 
 
@@ -432,9 +450,11 @@ def capabilities() -> str:
 def convert_research_paper(source_path: str) -> str:
     """Create a careful conversion workflow for a local research paper."""
     return (
-        f"Analyze the DOCX at {source_path!r}. Summarize its warnings and match rate, then perform "
-        "a local conversion and return the converted DOCX, CSL-JSON Zotero import file, and audit "
-        "report. Do not write to a Zotero library unless I separately request and confirm it."
+        f"Analyze the DOCX at {source_path!r}. Summarize its warnings, citation match rate, "
+        "caption count, and figure/table cross-reference count. Then perform a local conversion "
+        "and return the converted DOCX, CSL-JSON Zotero import file, and audit report. Confirm "
+        "that matched figure/table mentions became native Word REF fields. Do not write to a "
+        "Zotero library unless I separately request and confirm it."
     )
 
 

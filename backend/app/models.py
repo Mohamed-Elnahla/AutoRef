@@ -75,12 +75,41 @@ class CitationCandidate:
 
 
 @dataclass
+class Caption:
+    id: str
+    paragraph_index: int
+    start: int
+    end: int
+    text: str
+    kind: Literal["figure", "table"]
+    number: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CrossReferenceCandidate:
+    paragraph_index: int
+    start: int
+    end: int
+    text: str
+    caption_id: str
+    confidence: float = 1.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class Analysis:
     source_name: str
     detected_style: Literal["author-date", "numeric", "unknown"]
     reference_heading_index: int | None
     references: list[Reference]
     citations: list[CitationCandidate]
+    captions: list[Caption] = field(default_factory=list)
+    cross_references: list[CrossReferenceCandidate] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -95,12 +124,15 @@ class Analysis:
             "reference_heading_index": self.reference_heading_index,
             "references": [item.to_dict() for item in self.references],
             "citations": [item.to_dict() for item in self.citations],
+            "captions": [item.to_dict() for item in self.captions],
+            "cross_references": [item.to_dict() for item in self.cross_references],
             "warnings": self.warnings,
             "summary": {
                 "references": len(self.references),
                 "citations": len(self.citations),
                 "matched_citations": sum(bool(item.items) for item in self.citations),
                 "match_rate": round(self.match_rate, 4),
+                "captions": len(self.captions),
+                "cross_references": len(self.cross_references),
             },
         }
-

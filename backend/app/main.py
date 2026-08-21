@@ -149,8 +149,11 @@ def convert(job_id: str) -> dict:
     except (FileNotFoundError, ValueError):
         raise HTTPException(status_code=404, detail="This job does not exist or has expired.")
     analysis = analyze_docx(source, metadata["source_name"])
-    if not analysis.references:
-        raise HTTPException(status_code=409, detail="No reference list was detected; conversion was not run.")
+    if not analysis.references and not analysis.cross_references:
+        raise HTTPException(
+            status_code=409,
+            detail="No reference list or convertible figure/table cross-references were detected.",
+        )
     converted, report = convert_docx(source, analysis)
     stem = _safe_stem(metadata["source_name"])
     directory = store.directory(job_id)

@@ -142,3 +142,68 @@ def test_bibliography_field_spans_references_but_stops_before_appendix():
     )
     assert not paragraphs[4].xpath(".//w:fldChar", namespaces=NS)
     assert paragraph_text(paragraphs[4]) == "Appendix A"
+
+
+def test_figure_and_table_mentions_become_styled_word_cross_references():
+    source = _fixture(
+        """
+        <w:p><w:r><w:t>See Figure </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>1</w:t></w:r><w:r><w:t> and Table 2 for details.</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="Caption"/></w:pPr><w:r><w:t>Figure 1. System overview.</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="Caption"/></w:pPr><w:r><w:t>Table 2: Results.</w:t></w:r></w:p>
+        <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>References</w:t></w:r></w:p>
+        <w:p><w:r><w:t>Smith, J. (2024). First paper. Journal, 1(1), 1-2.</w:t></w:r></w:p>
+        """
+    )
+    analysis = analyze_docx(source, "paper.docx")
+
+    assert [(item.kind, item.number) for item in analysis.captions] == [
+        ("figure", "1"),
+        ("table", "2"),
+    ]
+    assert [item.text for item in analysis.cross_references] == ["1", "2"]
+
+    converted, report = convert_docx(source, analysis)
+    with zipfile.ZipFile(io.BytesIO(converted)) as archive:
+        root = etree.fromstring(archive.read("word/document.xml"))
+        paragraphs = root.xpath(".//w:p", namespaces=NS)
+
+    assert report["detected_captions"] == 2
+    assert report["converted_captions"] == 2
+    assert report["converted_cross_references"] == 2
+    assert report["skipped_cross_references"] == []
+    assert paragraph_text(paragraphs[0]) == "See Figure 1 and Table 2 for details."
+    instructions = root.xpath(".//w:instrText[starts-with(., ' REF ')]/text()", namespaces=NS)
+    assert len(instructions) == 2
+    assert all("\\h" in instruction for instruction in instructions)
+    assert len(root.xpath(".//w:bookmarkStart[starts-with(@w:name, 'AutoRef_')]", namespaces=NS)) == 2
+    seq_codes = root.xpath(".//w:instrText[starts-with(., ' SEQ ')]/text()", namespaces=NS)
+    assert seq_codes == [" SEQ Figure \\* ARABIC ", " SEQ Table \\* ARABIC "]
+    assert len(root.xpath(".//w:p[w:pPr/w:pStyle[@w:val='Caption']]", namespaces=NS)) == 2
+
+    bold_cross_reference_results = paragraphs[0].xpath(
+        ".//w:r[w:rPr/w:b and w:t='1']", namespaces=NS
+    )
+    assert len(bold_cross_reference_results) == 1
+
+
+def test_split_caption_label_and_title_become_one_native_word_caption():
+    source = _fixture(
+        """
+        <w:p><w:r><w:t>See Figure 1.</w:t></w:r></w:p>
+        <w:p><w:r><w:t>Figure 1</w:t></w:r></w:p>
+        <w:p><w:r><w:t>System overview</w:t></w:r></w:p>
+        <w:p><w:r><w:drawing/></w:r></w:p>
+        """
+    )
+    analysis = analyze_docx(source, "paper.docx")
+    converted, report = convert_docx(source, analysis)
+
+    with zipfile.ZipFile(io.BytesIO(converted)) as archive:
+        root = etree.fromstring(archive.read("word/document.xml"))
+        captions = root.xpath(".//w:p[w:pPr/w:pStyle[@w:val='Caption']]", namespaces=NS)
+
+    assert report["converted_captions"] == 1
+    assert report["converted_cross_references"] == 1
+    assert paragraph_text(captions[0]) == "Figure 1. System overview"
+    assert captions[0].xpath(".//w:instrText[text()=' SEQ Figure \\* ARABIC ']", namespaces=NS)
+    assert captions[0].xpath(".//w:bookmarkStart[starts-with(@w:name, 'AutoRef_Figure_1')]", namespaces=NS)

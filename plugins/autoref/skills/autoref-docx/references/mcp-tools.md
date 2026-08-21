@@ -11,10 +11,10 @@ Uploads use the backend's `AUTOREF_MAX_UPLOAD_BYTES` limit. Jobs and artifacts e
 
 ## Tools
 
-- `health`: server status and supported output formats.
-- `analyze_document`: validates and inventories the paper, returning `job_id`, references, citation candidates, warnings, and summary.
-- `convert_document`: converts an existing analyzed job without external calls.
-- `convert_docx_to_zotero`: convenience tool combining analysis and local conversion.
+- `health`: server status, output formats, and supported citation/cross-reference features.
+- `analyze_document`: validates and inventories the paper, returning `job_id`, references, citation candidates, figure/table captions, matching in-text cross-references, warnings, and summary.
+- `convert_document`: converts an existing analyzed job without external calls, including native Word `REF` fields for unambiguous figure/table matches.
+- `convert_docx_to_zotero`: convenience tool combining analysis and local conversion, including figure/table cross-references.
 - `read_artifact`: returns metadata and, by default, base64 bytes for `document`, `library`, or `report`.
 - `connect_zotero`: validates a key and returns an opaque expiring connection and writable libraries.
 - `disconnect_zotero`: removes the encrypted in-memory connection.
@@ -25,9 +25,11 @@ Uploads use the backend's `AUTOREF_MAX_UPLOAD_BYTES` limit. Jobs and artifacts e
 
 Credential-free conversion returns:
 
-- `document`: `*-zotero.docx`;
+- `document`: `*-zotero.docx`, containing Zotero fields plus figure/table Word `REF` fields;
 - `library`: `*-library.csl.json`, importable through Zotero's File -> Import flow;
 - `report`: `*-conversion-report.json`.
+
+The conversion report includes `detected_captions`, `converted_cross_references`, and `skipped_cross_references`. Analysis summary includes `captions` and `cross_references`.
 
 Confirmed library import returns:
 
@@ -36,4 +38,6 @@ Confirmed library import returns:
 
 ## Boundaries
 
-The converter currently supports DOCX body paragraphs, common reference-list headings, APA-like author-date citations including narrative forms, and bracketed numeric citations including ranges. It does not blindly rewrite ambiguous citations or citations nested in unsupported complex Word markup. Local CSL-JSON import cannot retroactively relink embedded citation fields to the newly created Zotero items.
+The converter currently supports DOCX body paragraphs, common reference-list headings, APA-like author-date citations including narrative forms, bracketed numeric citations including ranges, and figure/table captions using labels such as `Figure`, `Fig.`, and `Table`. Caption paragraphs are recognized conservatively by caption style or caption punctuation. Matching singular/plural in-text labels are supported, and only their number spans become Word `REF` fields so authored wording and character formatting remain intact.
+
+Duplicate caption numbers of the same type are ambiguous and remain unchanged with a warning. Cross-references nested in unsupported complex Word markup are also left unchanged. Local CSL-JSON import cannot retroactively relink embedded bibliographic citation fields to newly created Zotero items; figure/table links are local Word fields and do not use Zotero.

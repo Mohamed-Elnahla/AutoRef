@@ -86,7 +86,7 @@ a { color: inherit; text-decoration: none; }
 .results { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 22px; }
 .results-title { display: flex; gap: 9px; align-items: center; }
 .success { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: var(--brand); background: var(--brand-pale); }
-.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 18px; }
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
 .metrics div { padding: 15px 13px; border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; gap: 5px; }
 .metrics b { font-family: Georgia, "Times New Roman", serif; font-size: 25px; font-weight: 400; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metrics span { color: var(--muted); font-size: 11px; }

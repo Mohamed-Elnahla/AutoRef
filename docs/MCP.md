@@ -1,6 +1,6 @@
 # MCP server and Codex plugin
 
-AutoRef includes an MCP server for AI clients and a repository-local Codex plugin. The MCP surface mirrors the backend's analysis, local conversion, artifact retrieval, Zotero connection, import preview, confirmed import, and disconnect operations.
+AutoRef includes an MCP server for AI clients and a repository-local Codex plugin. The MCP surface mirrors the backend's analysis, local conversion—including figure/table caption detection and native Word cross-reference creation—artifact retrieval, Zotero connection, import preview, confirmed import, and disconnect operations.
 
 ## Install and run
 
@@ -50,7 +50,7 @@ The Docker equivalent is `docker compose --profile mcp up autoref-mcp`, which pu
 
 Local clients can pass `source_path`; remote clients can send `document_base64` and a filename. Generated artifacts include safe local paths, and `read_artifact` can return base64 for clients without shared filesystem access.
 
-`convert_document` and `convert_docx_to_zotero` generate a Zotero-field DOCX, Zotero-importable CSL-JSON, and an audit report. These credential-free fields embed metadata but are not linked to keys created by importing the CSL-JSON later.
+`analyze_document` returns detected `captions` and `cross_references` alongside bibliographic results. `convert_document` and `convert_docx_to_zotero` turn detected captions into Word `Caption` paragraphs with live `SEQ Figure` or `SEQ Table` fields, bookmark each caption number, and replace unambiguous in-text number spans with native clickable `REF` fields. Word's **Insert Table of Figures** then recognizes the converted captions for independent lists of figures and tables. The report exposes detected captions, converted captions, converted cross-references, and skipped candidates. Figure/table links are fully local; credential-free Zotero fields embed metadata but are not linked to keys created by importing the CSL-JSON later.
 
 For stable Zotero library linkage, connect, preview, show the exact create/reuse plan to the user, and call `import_to_zotero` only after explicit confirmation. The tool requires `confirm=true`, the preview's `plan_id`, and identical library and collection options. New items with DOIs are verified with Crossref before the first Zotero write.
 

@@ -22,6 +22,8 @@ type Summary = {
   citations: number;
   matched_citations: number;
   match_rate: number;
+  captions: number;
+  cross_references: number;
 };
 
 type Analysis = {
@@ -35,7 +37,10 @@ type Analysis = {
 type Conversion = {
   report: {
     converted_citations: number;
+    detected_captions: number;
+    converted_cross_references: number;
     skipped_citations: string[];
+    skipped_cross_references: string[];
     converted_bibliography: boolean;
     bibliography_entries: number;
   };
@@ -313,6 +318,8 @@ function App() {
                   <div className="metrics">
                     <div><b>{analysis.summary.references}</b><span>References</span></div>
                     <div><b>{analysis.summary.citations}</b><span>Citation callouts</span></div>
+                    <div><b>{analysis.summary.captions}</b><span>Figure/table captions</span></div>
+                    <div><b>{analysis.summary.cross_references}</b><span>Figure/table cross-refs</span></div>
                     <div><b>{Math.round(analysis.summary.match_rate * 100)}%</b><span>Matched safely</span></div>
                     <div><b>{analysis.detected_style}</b><span>Detected system</span></div>
                   </div>
@@ -383,9 +390,9 @@ function App() {
         </section>
 
         <section className="how">
-          <div><span>01</span><h2>Read</h2><p>Locate reference sections and citation callouts across author-date and numeric styles.</p></div>
+          <div><span>01</span><h2>Read</h2><p>Locate reference sections, citation callouts, and figure or table captions.</p></div>
           <div><span>02</span><h2>Resolve</h2><p>Parse metadata, match each callout conservatively, and surface ambiguity instead of guessing.</p></div>
-          <div><span>03</span><h2>Return</h2><p>Patch citation spans, make the reference list refreshable, and deliver the DOCX, Zotero import file, and an audit report.</p></div>
+          <div><span>03</span><h2>Return</h2><p>Patch citations and native Word cross-references, then deliver the DOCX, Zotero import file, and an audit report.</p></div>
         </section>
       </main>
 

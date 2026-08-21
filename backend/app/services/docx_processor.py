@@ -11,9 +11,16 @@ from typing import Any
 
 from lxml import etree
 
-from backend.app.models import Analysis, CitationCandidate, Reference
+from backend.app.models import (
+    Analysis,
+    Caption,
+    CitationCandidate,
+    CrossReferenceCandidate,
+    Reference,
+)
 from backend.app.services.citation_detector import detect_citations, detect_style
 from backend.app.services.reference_parser import parse_references
+from backend.app.services.word_crossrefs import detect_cross_references
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -69,6 +76,40 @@ def paragraph_text(paragraph: etree._Element) -> str:
 def _paragraph_style(paragraph: etree._Element) -> str:
     values = paragraph.xpath("./w:pPr/w:pStyle/@w:val", namespaces=NS)
     return values[0] if values else ""
+
+
+def _is_near_captioned_object(paragraph: etree._Element) -> bool:
+    """Accept label-only captions only when a table or graphic is adjacent.
+
+    A title paragraph and blank spacer are allowed between the label and its
+    object, covering both the common ``caption → title → object`` and
+    ``object → title → caption`` layouts without treating a standalone prose
+    reference as a caption.
+    """
+    parent = paragraph.getparent()
+    if parent is None:
+        return False
+    siblings = list(parent)
+    try:
+        index = siblings.index(paragraph)
+    except ValueError:
+        return False
+    for direction in (-1, 1):
+        prose_between = 0
+        for offset in range(1, 4):
+            candidate_index = index + direction * offset
+            if not 0 <= candidate_index < len(siblings):
+                break
+            candidate = siblings[candidate_index]
+            if candidate.tag == qn("tbl") or candidate.xpath(
+                ".//w:drawing|.//w:pict|.//w:object", namespaces=NS
+            ):
+                return True
+            if candidate.tag == qn("p") and paragraph_text(candidate).strip():
+                prose_between += 1
+                if prose_between > 1:
+                    break
+    return False
 
 
 def _hyperlink_targets(archive: zipfile.ZipFile) -> dict[str, str]:
@@ -128,17 +169,26 @@ def analyze_docx(data: bytes, source_name: str) -> Analysis:
         hyperlink_targets = _hyperlink_targets(archive)
     paragraphs = root.xpath(".//w:p", namespaces=NS)
     texts = [paragraph_text(item) for item in paragraphs]
+    paragraph_styles = [_paragraph_style(item) for item in paragraphs]
+    standalone_caption_contexts = [_is_near_captioned_object(item) for item in paragraphs]
     reference_start, raw_references = _find_reference_range(paragraphs, hyperlink_targets)
     references = parse_references(raw_references)
     citations = detect_citations(texts, references, reference_start)
+    captions, cross_references, crossref_warnings = detect_cross_references(
+        texts, reference_start, paragraph_styles, standalone_caption_contexts
+    )
     warnings: list[str] = []
     if reference_start is None:
-        warnings.append("No reference-list heading was found. No citation conversion is safe yet.")
+        warnings.append(
+            "No reference-list heading was found. Bibliographic citations cannot be converted, "
+            "but unambiguous figure/table cross-references can still be converted."
+        )
     if references and any(ref.confidence < 0.5 for ref in references):
         warnings.append("Some references have sparse metadata and should be reviewed before import.")
     unmatched = sum(not citation.items for citation in citations)
     if unmatched:
         warnings.append(f"{unmatched} citation candidate(s) could not be matched unambiguously.")
+    warnings.extend(crossref_warnings)
     warnings.append(
         "Local conversion embeds self-contained Zotero citations but cannot link them to library "
         "items. Connect Zotero and confirm an import preview to generate fully linked fields."
@@ -149,6 +199,8 @@ def analyze_docx(data: bytes, source_name: str) -> Analysis:
         reference_heading_index=reference_start,
         references=references,
         citations=citations,
+        captions=captions,
+        cross_references=cross_references,
         warnings=warnings,
     )
 
@@ -249,6 +301,198 @@ def _field_runs(candidate: CitationCandidate, refs, rpr, zotero_items=None):
     ]
 
 
+def _cross_reference_field_runs(
+    candidate: CrossReferenceCandidate, bookmark_name: str, rpr: etree._Element | None
+) -> list[etree._Element]:
+    begin = etree.Element(qn("fldChar"))
+    begin.set(qn("fldCharType"), "begin")
+    begin.set(qn("dirty"), "true")
+    instruction = etree.Element(qn("instrText"))
+    instruction.set(f"{{{XML_NS}}}space", "preserve")
+    instruction.text = f" REF {bookmark_name} \\h "
+    separate = etree.Element(qn("fldChar"))
+    separate.set(qn("fldCharType"), "separate")
+    end = etree.Element(qn("fldChar"))
+    end.set(qn("fldCharType"), "end")
+    return [
+        _new_run(begin),
+        _new_run(instruction),
+        _new_run(separate),
+        _new_run(_text_element(candidate.text), rpr),
+        _new_run(end),
+    ]
+
+
+def _caption_sequence_field_runs(
+    caption: Caption, rpr: etree._Element | None
+) -> list[etree._Element]:
+    """Create the SEQ field Word uses for Insert Caption labels.
+
+    The identifier deliberately matches Word's built-in caption label (Figure
+    or Table), which lets Word's Table of Figures/Table of Tables fields collect
+    these captions by using their respective ``\\c`` switches.
+    """
+    label = caption.kind.title()
+    begin = etree.Element(qn("fldChar"))
+    begin.set(qn("fldCharType"), "begin")
+    begin.set(qn("dirty"), "true")
+    instruction = etree.Element(qn("instrText"))
+    instruction.set(f"{{{XML_NS}}}space", "preserve")
+    instruction.text = f" SEQ {label} \\* ARABIC "
+    separate = etree.Element(qn("fldChar"))
+    separate.set(qn("fldCharType"), "separate")
+    end = etree.Element(qn("fldChar"))
+    end.set(qn("fldCharType"), "end")
+    return [
+        _new_run(begin),
+        _new_run(instruction),
+        _new_run(separate),
+        _new_run(_text_element(caption.number), rpr),
+        _new_run(end),
+    ]
+
+
+def _apply_caption_style(paragraph: etree._Element) -> None:
+    ppr = paragraph.find(qn("pPr"))
+    if ppr is None:
+        ppr = etree.Element(qn("pPr"))
+        paragraph.insert(0, ppr)
+    style = ppr.find(qn("pStyle"))
+    if style is None:
+        style = etree.Element(qn("pStyle"))
+        ppr.insert(0, style)
+    style.set(qn("val"), "Caption")
+
+
+def _replace_caption_number_with_sequence(paragraph: etree._Element, caption: Caption) -> None:
+    """Replace a typed caption number with Word's live ``SEQ`` field."""
+    text_nodes = paragraph.xpath(".//w:t", namespaces=NS)
+    positions: list[tuple[etree._Element, int, int]] = []
+    cursor = 0
+    for node in text_nodes:
+        value = node.text or ""
+        positions.append((node, cursor, cursor + len(value)))
+        cursor += len(value)
+    touched = [item for item in positions if item[1] < caption.end and item[2] > caption.start]
+    if not touched:
+        raise DocxError(f"Could not locate caption number {caption.number!r} in paragraph XML.")
+    start_node, start_global, _ = touched[0]
+    end_node, end_global_start, _ = touched[-1]
+    start_run = _run_for_text(start_node)
+    if start_run is None or start_run.getparent() is not paragraph:
+        raise DocxError("A detected caption is nested in unsupported complex Word markup.")
+    rpr = _clone_run_properties(start_run)
+    start_local = caption.start - start_global
+    end_local = caption.end - end_global_start
+    before = (start_node.text or "")[:start_local]
+    suffix = (end_node.text or "")[end_local:]
+    start_node.text = before
+    for node, _, _ in touched[1:]:
+        node.text = ""
+    if end_node is not start_node:
+        end_node.text = suffix
+    insertion_index = paragraph.index(start_run) + 1
+    for field_run in _caption_sequence_field_runs(caption, rpr):
+        paragraph.insert(insertion_index, field_run)
+        insertion_index += 1
+    if end_node is start_node and suffix:
+        paragraph.insert(insertion_index, _new_run(_text_element(suffix), rpr))
+
+
+def _merge_split_caption_title(paragraphs: list[etree._Element], caption: Caption) -> None:
+    """Fold ``Figure 1`` + following title into one Caption paragraph when safe."""
+    paragraph = paragraphs[caption.paragraph_index]
+    if re.sub(r"\s+", " ", paragraph_text(paragraph)).strip() != caption.text:
+        return
+    try:
+        title_paragraph = paragraphs[caption.paragraph_index + 1]
+    except IndexError:
+        return
+    title = paragraph_text(title_paragraph).strip()
+    if not title or title_paragraph.xpath(".//w:drawing|.//w:pict|.//w:object", namespaces=NS):
+        return
+    paragraph.append(_new_run(_text_element(". ")))
+    for child in list(title_paragraph):
+        if child.tag != qn("pPr"):
+            paragraph.append(copy.deepcopy(child))
+    title_paragraph.getparent().remove(title_paragraph)
+
+
+def _text_boundary_index(
+    paragraph: etree._Element, offset: int, *, include_zero_width_after: bool = False
+) -> int | None:
+    """Return a paragraph child boundary for a visible-text offset, splitting a run if needed."""
+    cursor = 0
+    children = list(paragraph)
+    for index, child in enumerate(children):
+        value = paragraph_text(child)
+        child_end = cursor + len(value)
+        if offset == cursor:
+            if include_zero_width_after:
+                boundary = index
+                while boundary < len(children):
+                    boundary_child = children[boundary]
+                    if paragraph_text(boundary_child):
+                        break
+                    boundary += 1
+                return boundary
+            return index
+        if cursor < offset < child_end:
+            if child.tag != qn("r"):
+                return None
+            text_nodes = child.xpath(".//w:t", namespaces=NS)
+            if len(text_nodes) != 1:
+                return None
+            local = offset - cursor
+            original = text_nodes[0].text or ""
+            left = copy.deepcopy(child)
+            right = copy.deepcopy(child)
+            left.xpath(".//w:t", namespaces=NS)[0].text = original[:local]
+            right_text = right.xpath(".//w:t", namespaces=NS)[0]
+            right_text.text = original[local:]
+            if right_text.text[:1].isspace() or right_text.text[-1:].isspace():
+                right_text.set(f"{{{XML_NS}}}space", "preserve")
+            paragraph.remove(child)
+            paragraph.insert(index, left)
+            paragraph.insert(index + 1, right)
+            return index + 1
+        cursor = child_end
+    return len(children) if offset == cursor else None
+
+
+def _bookmark_caption_number(
+    paragraph: etree._Element, caption: Caption, bookmark_name: str, bookmark_id: int
+) -> None:
+    end_index = _text_boundary_index(paragraph, caption.end, include_zero_width_after=True)
+    if end_index is None:
+        raise DocxError(f"Could not bookmark caption {caption.text!r} in paragraph XML.")
+    bookmark_end = etree.Element(qn("bookmarkEnd"))
+    bookmark_end.set(qn("id"), str(bookmark_id))
+    paragraph.insert(end_index, bookmark_end)
+
+    start_index = _text_boundary_index(paragraph, caption.start)
+    if start_index is None:
+        paragraph.remove(bookmark_end)
+        raise DocxError(f"Could not bookmark caption {caption.text!r} in paragraph XML.")
+    bookmark_start = etree.Element(qn("bookmarkStart"))
+    bookmark_start.set(qn("id"), str(bookmark_id))
+    bookmark_start.set(qn("name"), bookmark_name)
+    paragraph.insert(start_index, bookmark_start)
+
+
+def _bookmark_name(caption: Caption, used_names: set[str]) -> str:
+    number = re.sub(r"[^A-Za-z0-9]", "_", caption.number)
+    base = f"AutoRef_{caption.kind.title()}_{number}"[:40]
+    name = base
+    suffix = 2
+    while name in used_names:
+        marker = f"_{suffix}"
+        name = f"{base[:40 - len(marker)]}{marker}"
+        suffix += 1
+    used_names.add(name)
+    return name
+
+
 def _reference_result_paragraphs(
     paragraphs: list[etree._Element], heading_index: int | None
 ) -> list[etree._Element]:
@@ -341,6 +585,52 @@ def _replace_span(paragraph, candidate: CitationCandidate, refs, zotero_items=No
         paragraph.insert(insertion_index, _new_run(_text_element(suffix), rpr))
 
 
+def _replace_cross_reference_span(
+    paragraph: etree._Element,
+    candidate: CrossReferenceCandidate,
+    bookmark_name: str,
+) -> None:
+    text_nodes = paragraph.xpath(".//w:t", namespaces=NS)
+    positions: list[tuple[etree._Element, int, int]] = []
+    cursor = 0
+    for node in text_nodes:
+        value = node.text or ""
+        positions.append((node, cursor, cursor + len(value)))
+        cursor += len(value)
+    touched = [item for item in positions if item[1] < candidate.end and item[2] > candidate.start]
+    if not touched:
+        raise DocxError(f"Could not locate cross-reference text {candidate.text!r} in paragraph XML.")
+    start_node, start_global, _ = touched[0]
+    end_node, end_global_start, _ = touched[-1]
+    start_run = _run_for_text(start_node)
+    if start_run is None or start_run.getparent() is not paragraph:
+        raise DocxError("A matched cross-reference is nested in unsupported complex Word markup.")
+    rpr = _clone_run_properties(start_run)
+    start_local = candidate.start - start_global
+    end_local = candidate.end - end_global_start
+    start_value = start_node.text or ""
+    end_value = end_node.text or ""
+    before = start_value[:start_local]
+    suffix = end_value[end_local:]
+    start_node.text = before
+    if before[:1].isspace() or before[-1:].isspace():
+        start_node.set(f"{{{XML_NS}}}space", "preserve")
+
+    for node, _, _ in touched[1:]:
+        node.text = ""
+    if end_node is not start_node:
+        end_node.text = suffix
+        if suffix[:1].isspace() or suffix[-1:].isspace():
+            end_node.set(f"{{{XML_NS}}}space", "preserve")
+
+    insertion_index = paragraph.index(start_run) + 1
+    for field_run in _cross_reference_field_runs(candidate, bookmark_name, rpr):
+        paragraph.insert(insertion_index, field_run)
+        insertion_index += 1
+    if end_node is start_node and suffix:
+        paragraph.insert(insertion_index, _new_run(_text_element(suffix), rpr))
+
+
 def convert_docx(
     data: bytes,
     analysis: Analysis,
@@ -371,6 +661,33 @@ def convert_docx(
                     paragraph.getparent().remove(paragraph)
                     removed_references += 1
             paragraphs = root.xpath(".//w:p", namespaces=NS)
+
+        used_bookmark_names = set(root.xpath(".//w:bookmarkStart/@w:name", namespaces=NS))
+        existing_bookmark_ids = []
+        for raw_id in root.xpath(".//w:bookmarkStart/@w:id", namespaces=NS):
+            try:
+                existing_bookmark_ids.append(int(raw_id))
+            except ValueError:
+                continue
+        next_bookmark_id = max(existing_bookmark_ids, default=0) + 1
+        bookmark_names: dict[str, str] = {}
+        skipped_cross_references: list[str] = []
+        converted_captions = 0
+        for caption in analysis.captions:
+            bookmark_name = _bookmark_name(caption, used_bookmark_names)
+            try:
+                caption_paragraph = paragraphs[caption.paragraph_index]
+                _merge_split_caption_title(paragraphs, caption)
+                _apply_caption_style(caption_paragraph)
+                _replace_caption_number_with_sequence(caption_paragraph, caption)
+                _bookmark_caption_number(caption_paragraph, caption, bookmark_name, next_bookmark_id)
+            except (DocxError, IndexError) as exc:
+                skipped_cross_references.append(str(exc))
+                continue
+            bookmark_names[caption.id] = bookmark_name
+            next_bookmark_id += 1
+            converted_captions += 1
+
         grouped: dict[int, list[CitationCandidate]] = defaultdict(list)
         for candidate in selected:
             grouped[candidate.paragraph_index].append(candidate)
@@ -383,22 +700,55 @@ def convert_docx(
                     converted += 1
                 except DocxError as exc:
                     skipped.append(str(exc))
+
+        grouped_cross_references: dict[int, list[CrossReferenceCandidate]] = defaultdict(list)
+        for candidate in analysis.cross_references:
+            if candidate.caption_id in bookmark_names:
+                grouped_cross_references[candidate.paragraph_index].append(candidate)
+        converted_cross_references = 0
+        for paragraph_index, candidates in grouped_cross_references.items():
+            for candidate in sorted(candidates, key=lambda item: item.start, reverse=True):
+                try:
+                    _replace_cross_reference_span(
+                        paragraphs[paragraph_index],
+                        candidate,
+                        bookmark_names[candidate.caption_id],
+                    )
+                    converted_cross_references += 1
+                except (DocxError, IndexError) as exc:
+                    skipped_cross_references.append(str(exc))
         bibliography_entries = _wrap_reference_list_as_bibliography(
             paragraphs, analysis.reference_heading_index
         )
         document_xml = etree.tostring(
             root, xml_declaration=True, encoding="UTF-8", standalone=True
         )
+        settings_xml: bytes | None = None
+        if "word/settings.xml" in source.namelist():
+            settings_root = etree.fromstring(source.read("word/settings.xml"))
+            update_fields = settings_root.find("w:updateFields", namespaces=NS)
+            if update_fields is None:
+                update_fields = etree.SubElement(settings_root, qn("updateFields"))
+            update_fields.set(qn("val"), "true")
+            settings_xml = etree.tostring(
+                settings_root, xml_declaration=True, encoding="UTF-8", standalone=True
+            )
         output_buffer = io.BytesIO()
         with zipfile.ZipFile(output_buffer, "w") as target:
             for info in source.infolist():
                 payload = document_xml if info.filename == "word/document.xml" else source.read(info.filename)
+                if info.filename == "word/settings.xml" and settings_xml is not None:
+                    payload = settings_xml
                 target.writestr(info, payload)
     report = {
         "converted_citations": converted,
+        "detected_captions": len(analysis.captions),
+        "converted_captions": converted_captions,
+        "converted_cross_references": converted_cross_references,
         "converted_bibliography": bool(bibliography_entries),
         "bibliography_entries": bibliography_entries,
         "skipped_citations": skipped,
+        "skipped_cross_references": skipped_cross_references,
         "excluded_references": removed_references,
         "unlinked_excluded_citations": sum(
             1
