@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f4f6f1"/>
+  <circle cx="960" cy="40" r="400" fill="#dff1e6" opacity=".9"/>
+  <rect x="92" y="110" width="164" height="164" rx="42" fill="#0c5137"/>
+  <path fill="#fff" d="M130 151c18-6 36-3 44 9 8-12 26-15 44-9v82c-18-6-36-3-44 9-8-12-26-15-44-9zm40 19c-7-8-18-9-30-5v54c12-4 23-3 30 5zm8 0v54c7-8 18-9 30-5v-54c-12-4-23-3-30 5Z"/>
+  <path d="M174 160v67" stroke="#b7e8ca" stroke-width="5" stroke-linecap="round"/>
+  <text x="92" y="382" fill="#19201c" font-family="Georgia, serif" font-size="92" letter-spacing="-4">AutoRef</text>
+  <text x="96" y="458" fill="#166647" font-family="Georgia, serif" font-size="52" font-style="italic">citations, made live</text>
+  <text x="96" y="530" fill="#657069" font-family="Arial, sans-serif" font-size="28">Turn static Word citations into live Zotero fields.</text>
+</svg>
