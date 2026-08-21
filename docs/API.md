@@ -1,5 +1,19 @@
 # HTTP API
 
+The API is organized around an expiring document job. Analyze is read-only, local conversion produces downloadable artifacts, and Zotero import is a separate preview-gated path.
+
+```mermaid
+flowchart LR
+  accTitle: AutoRef HTTP API workflow
+  client[Browser or API client] --> analyze[POST /documents/analyze]
+  analyze --> job[(Expiring job)]
+  job --> local[POST /documents/{job_id}/convert]
+  local --> artifacts[GET /artifacts/{name}]
+  job --> preview[POST /zotero/preview]
+  preview --> import[POST /zotero/import]
+  import --> linked[Linked DOCX and import report]
+```
+
 ## `GET /api/health`
 
 Returns service status and version.
@@ -62,3 +76,5 @@ On success, the endpoint creates/reuses Zotero items, generates a linked DOCX, a
 - `401`: encrypted Zotero connection expired
 - `403`: key lacks write access to the selected library
 - `502`: Crossref service or a Zotero request could not be completed
+
+For diagram style, accessibility, and validation guidance, see [the Mermaid conventions](DIAGRAMS.md).

@@ -8,27 +8,18 @@ The design optimizes for fidelity, explainability, and conservative failure. A f
 
 ## System context
 
-```text
-Browser (React + TypeScript)
-        |
-        | multipart upload / JSON / artifact download
-        v
-FastAPI application
-  +-- upload validation and expiring job store
-  +-- DOCX OOXML reader and patcher
-  +-- citation detector and reference matcher
-  +-- reference parser adapter
-  +-- CSL-JSON exporter and audit report
-        |
-        +-- built-in deterministic parser
-        +-- optional future adapter: self-hosted GROBID
-        +-- opt-in Zotero Web API v3 client + encrypted credential vault
-
-AI client -- stdio or Streamable HTTP --> AutoRef MCP server
-                                          +-- same DOCX services and job store
-                                          +-- base64 or local-path document input
-                                          +-- guarded Zotero preview/import workflow
+```mermaid
+flowchart LR
+    accTitle: AutoRef system context
+    browser[Browser\nReact + TypeScript] -->|multipart, JSON, downloads| api[FastAPI application]
+    ai[AI client] -->|stdio or Streamable HTTP| mcp[AutoRef MCP server]
+    mcp --> services[Shared DOCX services and expiring job store]
+    api --> services
+    services --> parser[Deterministic parser\nfuture GROBID adapter]
+    services --> zotero[Opt-in Zotero API\nencrypted credential vault]
 ```
+
+The frontend is built into the backend in the production-shaped deployment. The MCP server uses the same service layer rather than a second conversion implementation.
 
 ## Backend modules
 
@@ -43,6 +34,21 @@ AI client -- stdio or Streamable HTTP --> AutoRef MCP server
 - `mcp_server.py`: MCP tools, resource, prompt, binary transport adapters, and explicit write confirmation.
 
 ## Conversion pipeline
+
+The conversion pipeline is deliberately linear until an ambiguity is found; uncertain text remains unchanged.
+
+```mermaid
+flowchart TD
+        accTitle: DOCX conversion pipeline
+        validate[Validate DOCX ZIP and size] --> inventory[Read document.xml and inventory paragraphs]
+        inventory --> boundaries[Find reference and appendix boundaries]
+        boundaries --> parse[Parse references and build indexes]
+        parse --> detect[Detect and classify citation spans]
+        detect --> patch[Patch only unambiguous spans in reverse order]
+        patch --> bibliography[Wrap reference list in ZOTERO_BIBL field]
+        bibliography --> copy[Copy unrelated ZIP parts unchanged]
+        copy --> emit[Emit DOCX, CSL-JSON, and audit report]
+```
 
 1. Reject non-DOCX, oversized, malformed, or incomplete ZIP packages.
 2. Read `word/document.xml` without loading macros, relationships, or external content.
@@ -73,6 +79,25 @@ document references -> exact DOI/title lookup -> create/reuse/DOI-update preview
 ```
 
 The preview is saved in the expiring document job and bound to its library, collection, and digest. Import rejects changed options with `409`. Reused records are never modified, except an exact title match without a DOI can receive the source DOI through a version-guarded update. Before creating anything in Zotero, AutoRef verifies every DOI belonging to a planned new item and downloads the canonical Crossref work metadata. A failed verification aborts before collection or item creation. References without DOIs continue with locally parsed metadata. New records are then created in batches of at most 50. If Zotero reports a partial failure, AutoRef attempts version-guarded deletion of items it created and removes a newly created collection when possible; it never deletes reused items.
+
+```mermaid
+sequenceDiagram
+        accTitle: Reviewed Zotero import sequence
+        participant User
+        participant API
+        participant Crossref
+        participant Zotero
+        User->>API: Connect scoped key
+        API->>Zotero: Discover writable libraries
+        User->>API: Request preview
+        API->>Zotero: Exact DOI/title lookup
+        API-->>User: Create/reuse/update plan
+        User->>API: Explicitly confirm plan
+        API->>Crossref: Verify DOI and fetch metadata
+        API->>Zotero: Create or update items in batches
+        Zotero-->>API: Return keys and canonical URIs
+        API-->>User: Linked DOCX and import report
+```
 
 ## Word field representation
 
@@ -129,3 +154,5 @@ OOXML serialization can change namespace declaration ordering inside `document.x
 ## Deployment shape
 
 Phase one is intentionally a single deployable web application: Vite produces static assets that FastAPI serves alongside `/api`. The job store is local disk, suitable for one instance. Multi-instance deployment requires object storage, a shared job database, idempotent workers, and a queue.
+
+See [the Mermaid and documentation conventions](DIAGRAMS.md) when extending this page.

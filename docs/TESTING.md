@@ -1,5 +1,17 @@
 # Verification strategy
 
+Testing follows the same risk boundary as the product: analyze locally, verify structural fidelity, and treat external Zotero writes as an explicitly reviewed integration.
+
+```mermaid
+flowchart TD
+	accTitle: AutoRef verification layers
+	unit[Parser and detector unit tests] --> api[API and job lifecycle tests]
+	api --> frontend[Strict TypeScript and Vite build]
+	frontend --> ooxml[OOXML package and field assertions]
+	ooxml --> render[LibreOffice page-render comparison]
+	render --> word[Manual Word plus Zotero interoperability]
+```
+
 ## Automated layers
 
 1. Unit tests validate APA parsing, stable IDs, narrative citations, parenthetical citations, and numeric ranges.
@@ -21,3 +33,5 @@ For each representative fixture:
 7. Open in current Microsoft Word with Zotero installed, run Add/Edit Citation and Refresh, and record the result.
 
 LibreOffice rendering checks layout, but it cannot prove Zotero plugin compatibility. A release therefore needs both render regression and manual/automated Word-plus-Zotero interoperability tests.
+
+Use [the Mermaid conventions](DIAGRAMS.md) when adding a new verification workflow or release gate.

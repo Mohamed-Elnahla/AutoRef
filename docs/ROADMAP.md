@@ -1,5 +1,17 @@
 # Roadmap
 
+```mermaid
+timeline
+	accTitle: AutoRef delivery roadmap
+	title AutoRef delivery roadmap
+	Phase 1 hardening : Parser adapters and review UX
+					   : Document-part coverage and production controls
+	Phase 2 linked Zotero : Scoped keys and exact deduplication
+							: Preview, canonical metadata, and rollback
+	Phase 3 quality and scale : Benchmark corpus and calibrated parsing
+								: Queue workers, shared storage, and institutional deployment
+```
+
 ## Phase 1 hardening
 
 - add the GROBID `processCitationList` adapter and Docker profile
@@ -32,3 +44,5 @@
 - GROBID/AnyStyle ensemble with calibrated confidence
 - Crossref/OpenAlex/PubMed enrichment behind privacy controls
 - institutional deployment with SSO, retention policy, and audit exports
+
+Roadmap diagrams and Markdown should follow [the repository documentation conventions](DIAGRAMS.md).

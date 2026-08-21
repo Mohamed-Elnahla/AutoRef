@@ -1,5 +1,17 @@
 # Architecture decision records
 
+The decisions form a set of constraints rather than a linear implementation plan: fidelity and safe abstention govern the local path, while review and rollback govern remote writes.
+
+```mermaid
+flowchart TD
+	accTitle: AutoRef architectural decision drivers
+	fidelity[Preserve DOCX layout] --> ooxml[Patch OOXML parts]
+	explain[Explainable behavior] --> parser[Deterministic parser with adapter boundary]
+	privacy[Local-first privacy] --> expiry[Expiring jobs and opt-in enrichment]
+	safety[Prevent silent remote changes] --> review[Preview-gated writes]
+	review --> rollback[Compensating rollback]
+```
+
 ## ADR-001: Patch OOXML instead of rebuilding DOCX
 
 **Status:** accepted
@@ -59,3 +71,5 @@ DOI matches take priority, followed by normalized exact title matches. Existing 
 **Status:** accepted
 
 Zotero multi-object writes can partially succeed. AutoRef records returned keys, uses version-guarded delete requests for newly created objects after a partial failure, and never deletes reused items. This is a compensating transaction, not an atomic guarantee: concurrent remote edits can correctly prevent rollback and require manual recovery.
+
+See [the Mermaid and documentation conventions](DIAGRAMS.md) for diagram maintenance guidance.

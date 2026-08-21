@@ -2,6 +2,17 @@
 
 Research checked on 20 August 2026. Primary project sources and Zotero documentation are linked directly.
 
+```mermaid
+flowchart LR
+	accTitle: Parser research decision path
+	input[DOCX reference strings] --> baseline[Deterministic local parser]
+	baseline -->|Preferred adapter| grobid[GROBID]
+	baseline -->|Evaluation comparator| anystyle[AnyStyle]
+	baseline -->|Historical baseline| parscit[ParsCit]
+	structured[Structured formats and DOI conversion] --> citationjs[Citation.js]
+	library[Zotero interoperability] --> zotero[Zotero Web API and field guidance]
+```
+
 ## Evaluated components
 
 | System | Strength | Limitation for this application | Decision |
@@ -54,4 +65,6 @@ Build a gold corpus stratified by citation family and document complexity:
 - English, accented Latin, Arabic, CJK, and mixed-direction content.
 
 Report reference segmentation F1, field-level metadata precision/recall, citation-span F1, citation-to-reference linkage accuracy, safe abstention rate, false-conversion rate, DOCX structural validity, Zotero refresh success, and page-render pixel differences. A release gate should prioritize zero false conversions over recall.
+
+Use [the Mermaid conventions](DIAGRAMS.md) when adding evaluated systems, research decisions, or evidence links.
 

@@ -1,10 +1,39 @@
 # AutoRef
 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![React](https://img.shields.io/badge/frontend-React%20%2B%20TypeScript-61DAFB?logo=react&logoColor=111827)](frontend/)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)](backend/app/main.py)
+[![License](https://img.shields.io/badge/license-AutoRef%20Community%201.0-0B6B4F)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-Mermaid%20diagrams-ff3670?logo=github)](docs/DIAGRAMS.md)
+
 Developed by [Eng. Mohamed Elnahla](https://www.linkedin.com/in/mohamed-el-nahla). Source code and releases are available at [github.com/Mohamed-Elnahla/AutoRef](https://github.com/Mohamed-Elnahla/AutoRef).
 
 AutoRef is a local-first web application that turns plain-text citations and the detected reference list in a Word research paper into native Zotero Word fields while preserving the surrounding DOCX package. Phase 2 can create or reuse items in a personal or group Zotero library, then write the returned item keys and canonical URIs into the document. A credential-free CSL-JSON workflow remains available.
 
 This repository is a conservative working foundation, not a claim that arbitrary academic documents can be converted without review. AutoRef converts only unambiguous matches and leaves uncertain text untouched. Zotero writes require a separate, explicit preview and confirmation.
+
+![AutoRef upload screen](docs/images/autoref-upload.png)
+
+![AutoRef analysis results](docs/images/autoref-analysis.png)
+
+## How it works
+
+The browser and API share one local-first workflow. The local path never calls Zotero; the linked path pauses at a review boundary before any remote write.
+
+```mermaid
+flowchart LR
+	accTitle: AutoRef document conversion workflow
+	upload[Upload DOCX] --> analyze[Analyze references and citations]
+	analyze --> choice{Choose output}
+	choice -->|Local| convert[Patch native Word fields]
+	convert --> artifacts[DOCX + CSL-JSON + audit report]
+	choice -->|Zotero-linked| preview[Preview create, reuse, and update plan]
+	preview --> confirm{Explicit confirmation}
+	confirm -->|Yes| enrich[Verify DOI and fetch canonical metadata]
+	enrich --> write[Write Zotero items and link returned keys]
+	write --> linked[Linked DOCX + import report]
+	confirm -->|No| analyze
+```
 
 ## What works
 
@@ -45,6 +74,8 @@ uvicorn backend.app.main:app --reload
 
 Open `http://localhost:8000`. For split frontend development, run `pnpm dev` in `frontend`; Vite proxies `/api` to port 8000.
 
+For the frontend-only development loop, use `pnpm dev` in `frontend` and open `http://localhost:5173`. The production-shaped local loop is `pnpm build` followed by `uvicorn backend.app.main:app --reload`.
+
 ## Test
 
 ```bash
@@ -81,6 +112,8 @@ A confirmed Zotero import instead returns `*-zotero-linked.docx` and `*-zotero-i
 CSL-JSON import creates new item keys, so credential-free output cannot link its Word fields to the separately imported records. Those fields retain embedded metadata and remain editable, but initially appear as orphaned citations. Use the Zotero-linked workflow when stable library linkage matters.
 
 Read [the architecture](docs/ARCHITECTURE.md), [research notes](docs/OPEN_SOURCE_RESEARCH.md), [decisions](docs/DECISIONS.md), and [roadmap](docs/ROADMAP.md) before extending the converter.
+
+Documentation diagrams follow the conventions in [docs/DIAGRAMS.md](docs/DIAGRAMS.md). The [API](docs/API.md), [MCP guide](docs/MCP.md), and [testing guide](docs/TESTING.md) include focused Mermaid views of their contracts.
 
 ## License and acknowledgments
 

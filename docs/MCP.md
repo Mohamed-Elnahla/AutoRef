@@ -2,6 +2,24 @@
 
 AutoRef includes an MCP server for AI clients and a repository-local Codex plugin. Developed by [Eng. Mohamed Elnahla](https://www.linkedin.com/in/mohamed-el-nahla), the MCP surface mirrors the backend's analysis, local conversion—including figure/table caption detection and native Word cross-reference creation—artifact retrieval, Zotero connection, import preview, confirmed import, and disconnect operations.
 
+```mermaid
+sequenceDiagram
+  accTitle: MCP document conversion workflow
+  participant Client as AI client
+  participant MCP as AutoRef MCP
+  participant Job as Expiring job store
+  Client->>MCP: analyze_document(source_path or base64)
+  MCP->>Job: Store source and analysis
+  MCP-->>Client: job_id, matches, warnings
+  Client->>MCP: convert_document(job_id)
+  MCP->>Job: Write DOCX, CSL-JSON, and report
+  MCP-->>Client: Artifact metadata or base64
+  Client->>MCP: preview_zotero_import()
+  MCP-->>Client: Review plan
+  Client->>MCP: import_to_zotero(confirm=true)
+  MCP-->>Client: Linked artifact and audit report
+```
+
 ## Install and run
 
 Install the Python package from the repository so the `autoref-mcp` executable is available:
@@ -68,3 +86,5 @@ codex plugin add autoref@personal
 Start a new Codex task after installation so it discovers the MCP tools and `$autoref-docx` skill. If `personal` is already the name of another configured marketplace, rename the top-level marketplace `name` before adding the repository and use that new name after `@`.
 
 The plugin's MCP launcher expects `autoref-mcp` on `PATH`. Its environment allowlist passes the documented `AUTOREF_*` settings, including `AUTOREF_ZOTERO_API_KEY` when configured outside Codex.
+
+See [the documentation and Mermaid conventions](DIAGRAMS.md) for diagram authoring and validation guidance.
