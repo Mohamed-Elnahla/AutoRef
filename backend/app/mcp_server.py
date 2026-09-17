@@ -330,6 +330,8 @@ def connect_zotero(api_key: str | None = None) -> dict[str, Any]:
                 for library in libraries
             ],
         }
+    except MCPError:
+        raise
     except ZoteroError as exc:
         message = str(exc)
         error_code = "invalid_key" if "invalid or lacks" in message else "server_error"

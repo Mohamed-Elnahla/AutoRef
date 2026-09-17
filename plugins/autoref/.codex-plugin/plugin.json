@@ -1,6 +1,6 @@
 {
   "name": "autoref",
-  "version": "0.3.1+codex.20260917164000",
+  "version": "0.3.2+codex.20260917170000",
   "description": "Convert DOCX citations into Zotero fields and figure/table mentions into Word cross-references.",
   "author": {
     "name": "Eng. Mohamed Elnahla",

@@ -30,7 +30,7 @@ Prefer each artifact's `local_path` when the client can access it. Otherwise cal
 Use this mode only when the user asks to write references into a Zotero library.
 
 1. Analyze the document.
-2. Call `connect_zotero`. Prefer `AUTOREF_ZOTERO_API_KEY`; do not ask the user to paste a key into chat when an environment-backed connection is possible.
+2. Call `connect_zotero`. Prefer `AUTOREF_ZOTERO_API_KEY`; do not ask the user to paste a key into chat when an environment-backed connection is possible. If connection fails, report the returned `error_code` and continue with credential-free conversion plus CSL-JSON export; do not attempt a Zotero write.
 3. Call `preview_zotero_import` for the chosen writable library and optional collection.
 4. Present every create/reuse decision and the summary. Stop for explicit confirmation.
 5. Only after confirmation, call `import_to_zotero` with the unchanged options, returned `plan_id`, and `confirm=true`.

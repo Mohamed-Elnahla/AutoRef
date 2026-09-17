@@ -9,7 +9,7 @@ The production MCP server accepts exactly one of:
 Do not send `source_path` to the production server; its filesystem is separate from the caller's
 machine.
 
-Uploads use the backend's `AUTOREF_MAX_UPLOAD_BYTES` limit. Jobs and artifacts expire according to `AUTOREF_JOB_TTL_HOURS`.
+Uploads use the backend's `AUTOREF_MAX_UPLOAD_BYTES` limit. Jobs and artifacts expire according to `AUTOREF_JOB_TTL_HOURS`. Encode files locally and send them directly; do not print or expose base64 payloads in model output or diagnostics. The production ingress supports DOCX uploads up to 32 MB, subject to the backend limit.
 
 ## Tools
 
@@ -22,6 +22,8 @@ Uploads use the backend's `AUTOREF_MAX_UPLOAD_BYTES` limit. Jobs and artifacts e
 - `disconnect_zotero`: removes the encrypted in-memory connection.
 - `preview_zotero_import`: exact DOI/title create-or-reuse plan; it performs no write.
 - `import_to_zotero`: verifies new-item DOIs with Crossref, performs confirmed Zotero writes, and generates a linked DOCX. It requires the preview's exact options and `confirm=true`.
+
+If `connect_zotero` fails, report its `error_code` and fall back to credential-free conversion plus CSL-JSON export. Never call `import_to_zotero` after a failed connection or without a successful preview and explicit confirmation.
 
 ## Artifacts
 
