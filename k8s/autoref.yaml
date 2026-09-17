@@ -122,3 +122,112 @@ spec:
                 name: autoref
                 port:
                   name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autoref-mcp
+  namespace: autoref
+  labels:
+    app: autoref-mcp
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 1m"
+    keel.sh/match-tag: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autoref-mcp
+  template:
+    metadata:
+      labels:
+        app: autoref-mcp
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: autoref-mcp
+          image: harbor.cortexbim.app/cortexbim-home/autoref:latest
+          imagePullPolicy: Always
+          command:
+            - autoref-mcp
+            - --transport
+            - streamable-http
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8010"
+          ports:
+            - name: mcp
+              containerPort: 8010
+          env:
+            - name: AUTOREF_JOB_ROOT
+              value: /app/data/jobs
+            - name: AUTOREF_JOB_TTL_HOURS
+              value: "24"
+          volumeMounts:
+            - name: jobs
+              mountPath: /app/data/jobs
+          readinessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1
+              memory: 1Gi
+      volumes:
+        - name: jobs
+          persistentVolumeClaim:
+            claimName: autoref-jobs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autoref-mcp
+  namespace: autoref
+  labels:
+    app: autoref-mcp
+spec:
+  selector:
+    app: autoref-mcp
+  ports:
+    - name: mcp
+      port: 8010
+      targetPort: mcp
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: autoref-mcp
+  namespace: autoref
+  labels:
+    app: autoref-mcp
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: autoref.cortexbim.app
+      http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: autoref-mcp
+                port:
+                  name: mcp
