@@ -4,13 +4,16 @@ import argparse
 import base64
 import binascii
 import json
+import logging
 import os
 import re
+import uuid
 from pathlib import Path
 from typing import Any, Literal
 
 from mcp.server import MCPServer
-from mcp.types import ToolAnnotations
+from mcp.shared.exceptions import MCPError
+from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ToolAnnotations
 
 from backend.app.config import settings
 from backend.app.services.credential_vault import CredentialVault
@@ -45,6 +48,26 @@ PLAN_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 CONNECTION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 ArtifactName = Literal["document", "library", "report"]
 LibraryType = Literal["user", "group"]
+logger = logging.getLogger(__name__)
+
+
+def _raise_mcp_error(
+    code: int,
+    error_code: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+) -> None:
+    """Raise a protocol error with safe, machine-readable diagnostics."""
+    request_id = uuid.uuid4().hex
+    raise MCPError(
+        code=code,
+        message=message,
+        data={
+            "error_code": error_code,
+            "details": details or {},
+            "request_id": request_id,
+        },
+    )
 
 
 def _safe_stem(filename: str) -> str:
@@ -61,24 +84,34 @@ def _require_token(value: str, pattern: re.Pattern[str], label: str) -> str:
 def _document_input(
     source_path: str | None, document_base64: str | None, filename: str | None
 ) -> tuple[bytes, str]:
-    if bool(source_path) == bool(document_base64):
-        raise ValueError("Provide exactly one of source_path or document_base64.")
     if source_path:
-        path = Path(source_path).expanduser().resolve()
-        if not path.is_file():
-            raise ValueError(f"DOCX file not found: {path}")
-        source_name = filename or path.name
-        data = path.read_bytes()
-    else:
-        source_name = filename or "paper.docx"
-        try:
-            data = base64.b64decode(document_base64 or "", validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise ValueError("document_base64 is not valid base64.") from exc
+        _raise_mcp_error(
+            INVALID_PARAMS,
+            "source_path_unsupported",
+            "The production MCP server cannot access the caller's local filesystem.",
+            {"accepted_input": "document_base64", "filename_required": True},
+        )
+    if not document_base64:
+        _raise_mcp_error(
+            INVALID_PARAMS,
+            "missing_document",
+            "Provide document_base64 and a .docx filename.",
+            {"accepted_input": "document_base64"},
+        )
+    source_name = filename or "paper.docx"
+    try:
+        data = base64.b64decode(document_base64, validate=True)
+    except (binascii.Error, ValueError):
+        _raise_mcp_error(INVALID_PARAMS, "invalid_document_base64", "document_base64 is not valid base64.")
     if not source_name.lower().endswith(".docx"):
-        raise ValueError("The document filename must end in .docx.")
+        _raise_mcp_error(INVALID_PARAMS, "invalid_filename", "The document filename must end in .docx.")
     if len(data) > settings.max_upload_bytes:
-        raise ValueError(f"The document exceeds the {settings.max_upload_bytes}-byte upload limit.")
+        _raise_mcp_error(
+            INVALID_PARAMS,
+            "document_too_large",
+            "The document exceeds the configured upload limit.",
+            {"max_bytes": settings.max_upload_bytes},
+        )
     return data, source_name
 
 
@@ -86,7 +119,7 @@ def _analyze_and_store(data: bytes, source_name: str) -> dict:
     try:
         analysis = analyze_docx_bytes(data, source_name)
     except DocxError as exc:
-        raise ValueError(str(exc)) from exc
+        _raise_mcp_error(INVALID_PARAMS, "invalid_docx", str(exc))
     store.cleanup()
     job_id = store.create(source_name, data)
     payload = analysis.to_dict()
@@ -148,8 +181,12 @@ def _zotero_client(connection_id: str) -> ZoteroClient:
     _require_token(connection_id, CONNECTION_ID_RE, "connection_id")
     try:
         return ZoteroClient(vault.get(connection_id))
-    except KeyError as exc:
-        raise ValueError("The Zotero connection expired; reconnect it.") from exc
+    except KeyError:
+        _raise_mcp_error(
+            INVALID_PARAMS,
+            "connection_expired",
+            "The Zotero connection expired; reconnect it.",
+        )
 
 
 def _selected_library(client: ZoteroClient, library_type: str, library_id: int) -> Library:
@@ -268,14 +305,22 @@ def connect_zotero(api_key: str | None = None) -> dict[str, Any]:
     """
     secret = api_key or os.getenv("AUTOREF_ZOTERO_API_KEY")
     if not secret:
-        raise ValueError("Provide api_key or set AUTOREF_ZOTERO_API_KEY for the MCP process.")
+        _raise_mcp_error(
+            INVALID_PARAMS,
+            "missing_api_key",
+            "Provide a Zotero API key or configure AUTOREF_ZOTERO_API_KEY on the server.",
+        )
     if not 8 <= len(secret) <= 200:
-        raise ValueError("The Zotero API key length is invalid.")
+        _raise_mcp_error(INVALID_PARAMS, "invalid_key", "The Zotero API key format is invalid.")
     client = ZoteroClient(secret)
     try:
         _, libraries = client.libraries()
         if not libraries:
-            raise ValueError("The Zotero key has no writable libraries.")
+            _raise_mcp_error(
+                INVALID_PARAMS,
+                "no_writable_library",
+                "The Zotero key has no writable libraries.",
+            )
         connection_id = vault.put(secret)
         return {
             "connection_id": connection_id,
@@ -286,7 +331,21 @@ def connect_zotero(api_key: str | None = None) -> dict[str, Any]:
             ],
         }
     except ZoteroError as exc:
-        raise ValueError(str(exc)) from exc
+        message = str(exc)
+        error_code = "invalid_key" if "invalid or lacks" in message else "server_error"
+        _raise_mcp_error(
+            INVALID_PARAMS if error_code == "invalid_key" else INTERNAL_ERROR,
+            error_code,
+            message,
+        )
+    except Exception as exc:
+        request_id = uuid.uuid4().hex
+        logger.exception("Zotero connection failed request_id=%s", request_id)
+        raise MCPError(
+            code=INTERNAL_ERROR,
+            message="AutoRef could not connect to Zotero.",
+            data={"error_code": "server_error", "details": {}, "request_id": request_id},
+        ) from exc
     finally:
         client.close()
 
@@ -324,7 +383,7 @@ def preview_zotero_import(
         library = _selected_library(client, library_type, library_id)
         plan = client.plan(library, analysis.references)
     except ZoteroError as exc:
-        raise ValueError(str(exc)) from exc
+        _raise_mcp_error(INTERNAL_ERROR, "server_error", str(exc))
     finally:
         client.close()
     stored = {
