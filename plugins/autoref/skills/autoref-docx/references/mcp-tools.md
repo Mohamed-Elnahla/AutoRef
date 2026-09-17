@@ -2,10 +2,12 @@
 
 ## Document input
 
-`analyze_document` and `convert_docx_to_zotero` accept exactly one of:
+The production MCP server accepts exactly one of:
 
-- `source_path`: an absolute or resolvable local `.docx` path;
 - `document_base64`: base64-encoded DOCX bytes, with `filename` ending in `.docx`.
+
+Do not send `source_path` to the production server; its filesystem is separate from the caller's
+machine.
 
 Uploads use the backend's `AUTOREF_MAX_UPLOAD_BYTES` limit. Jobs and artifacts expire according to `AUTOREF_JOB_TTL_HOURS`.
 

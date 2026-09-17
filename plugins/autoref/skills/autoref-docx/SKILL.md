@@ -9,9 +9,13 @@ Use the AutoRef MCP tools to preserve the source document while converting only 
 
 For figure/table links, AutoRef converts only the number portion. This preserves the author's exact surrounding label—such as `Fig.`, `Figure`, `Figures`, or `Table`—and the number's existing character formatting. A document containing valid figure/table matches can be converted even when it has no bibliography.
 
-## Local conversion
+## Production conversion
 
-For a local file, pass its absolute path to `analyze_document`. For a remote client, pass base64 and a `.docx` filename instead. Show the user the detected bibliographic style, reference/citation counts, citation match rate, figure/table caption count, cross-reference count, and warnings.
+The AutoRef MCP configured by this plugin is the production Streamable HTTP server at
+`https://autoref.cortexbim.app/mcp`. It cannot access the caller's local filesystem. Send the
+DOCX as `document_base64` with a `.docx` filename; do not send a local `source_path`. Show the
+user the detected bibliographic style, reference/citation counts, citation match rate,
+figure/table caption count, cross-reference count, and warnings.
 
 Use `convert_document` with the returned job ID, or use `convert_docx_to_zotero` for a one-call workflow. Deliver all three artifacts:
 
